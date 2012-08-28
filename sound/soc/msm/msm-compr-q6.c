@@ -594,7 +594,6 @@ static int msm_compr_open(struct snd_pcm_substream *substream)
 	}
 	prtd = &compr->prtd;
 	prtd->substream = substream;
-	prtd->audio_client->perf_mode = false;
 	prtd->audio_client = q6asm_audio_client_alloc(
 				(app_cb)compr_event_handler, compr);
 	if (!prtd->audio_client) {
@@ -603,6 +602,7 @@ static int msm_compr_open(struct snd_pcm_substream *substream)
 		return -ENOMEM;
 	}
 
+	prtd->audio_client->perf_mode = false;
 	pr_info("[%p] %s: session ID %d\n", prtd, __func__, prtd->audio_client->session);
 
 	prtd->session_id = prtd->audio_client->session;
