@@ -95,11 +95,11 @@ static struct snd_pcm_hardware msm_compr_hardware_playback = {
 	.rate_max =	     48000,
 	.channels_min =	 1,
 	.channels_max =	 2,
-	.buffer_bytes_max =     2 * 1024 * 1024,
-	.period_bytes_min =	8 * 1024,
-	.period_bytes_max =     1024 * 1024,
-	.periods_min =	  2,
-	.periods_max =	  256,
+	.buffer_bytes_max =     1024 * 1024,
+	.period_bytes_min =	128 * 1024,
+	.period_bytes_max =     256 * 1024,
+	.periods_min =	  4,
+	.periods_max =	  8,
 	.fifo_size =	    0,
 };
 
