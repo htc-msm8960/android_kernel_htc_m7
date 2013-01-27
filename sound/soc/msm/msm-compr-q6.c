@@ -514,12 +514,12 @@ static int msm_compr_trigger(struct snd_pcm_substream *substream, int cmd)
 				soc_prtd->dai_link->be_id,
 				prtd->session_id, substream->stream, 1);
 		}
+		atomic_set(&prtd->pending_buffer, 1);
 	case SNDRV_PCM_TRIGGER_RESUME:
 	case SNDRV_PCM_TRIGGER_PAUSE_RELEASE:
 		pr_debug("[%p] %s: Trigger start/resume\n", prtd, __func__);
 		q6asm_run_nowait(prtd->audio_client, 0, 0, 0);
 		atomic_set(&prtd->start, 1);
-		
 		break;
 	case SNDRV_PCM_TRIGGER_STOP:
 		pr_debug("[%p] SNDRV_PCM_TRIGGER_STOP\n", prtd);
