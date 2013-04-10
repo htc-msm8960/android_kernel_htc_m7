@@ -27,7 +27,7 @@
 #include <linux/spi/spi.h>
 #include <linux/dma-mapping.h>
 #include <linux/platform_data/qcom_crypto_device.h>
-#include <linux/ion.h>
+#include <linux/msm_ion.h>
 #include <linux/memory.h>
 #include <linux/memblock.h>
 #include <linux/msm_thermal.h>
@@ -465,9 +465,7 @@ static struct ion_co_heap_pdata fw_co_m7_ion_pdata = {
 };
 #endif
 
-static struct ion_platform_data ion_pdata = {
-	.nr = MSM_ION_HEAP_NUM,
-	.heaps = {
+struct ion_platform_heap msm8960_heaps[] = {
 		{
 			.id	= ION_SYSTEM_HEAP_ID,
 			.type	= ION_HEAP_TYPE_SYSTEM,
@@ -528,7 +526,11 @@ static struct ion_platform_data ion_pdata = {
 			.extra_data = (void *) &co_m7_ion_pdata,
 		},
 #endif
-	}
+};
+
+static struct ion_platform_data ion_pdata = {
+	.nr = MSM_ION_HEAP_NUM,
+	.heaps = msm8960_heaps,	
 };
 
 static struct platform_device m7_ion_dev = {
@@ -589,7 +591,7 @@ static void __init reserve_ion_memory(void)
 		const struct ion_platform_heap *heap =
 			&(ion_pdata.heaps[i]);
 
-		if (heap->type == ION_HEAP_TYPE_CP && heap->extra_data) {
+		if ((int)heap->type == (int)ION_HEAP_TYPE_CP && heap->extra_data) {
 			struct ion_cp_heap_pdata *data = heap->extra_data;
 
 			reusable_count += (data->reusable) ? 1 : 0;
@@ -611,14 +613,14 @@ static void __init reserve_ion_memory(void)
 			int fixed_position = NOT_FIXED;
 			int mem_is_fmem = 0;
 
-			switch (heap->type) {
-			case ION_HEAP_TYPE_CP:
+			switch ((int)heap->type) {
+			case (int)ION_HEAP_TYPE_CP:
 				mem_is_fmem = ((struct ion_cp_heap_pdata *)
 					heap->extra_data)->mem_is_fmem;
 				fixed_position = ((struct ion_cp_heap_pdata *)
 					heap->extra_data)->fixed_position;
 				break;
-			case ION_HEAP_TYPE_CARVEOUT:
+			case (int)ION_HEAP_TYPE_CARVEOUT:
 				mem_is_fmem = ((struct ion_co_heap_pdata *)
 					heap->extra_data)->mem_is_fmem;
 				fixed_position = ((struct ion_co_heap_pdata *)
@@ -669,13 +671,13 @@ static void __init reserve_ion_memory(void)
 			int fixed_position = NOT_FIXED;
 			struct ion_cp_heap_pdata *pdata = NULL;
 
-			switch (heap->type) {
-			case ION_HEAP_TYPE_CP:
+			switch ((int)heap->type) {
+			case (int)ION_HEAP_TYPE_CP:
 				pdata =
 				(struct ion_cp_heap_pdata *)heap->extra_data;
 				fixed_position = pdata->fixed_position;
 				break;
-			case ION_HEAP_TYPE_CARVEOUT:
+			case (int)ION_HEAP_TYPE_CARVEOUT:
 				fixed_position = ((struct ion_co_heap_pdata *)
 					heap->extra_data)->fixed_position;
 				break;
@@ -1192,6 +1194,16 @@ static struct htc_battery_cell htc_battery_cells[] = {
 };
 #endif 
 
+#define _GET_REGULATOR(var, name) do {				\
+	var = regulator_get(NULL, name);			\
+	if (IS_ERR(var)) {					\
+		pr_err("'%s' regulator not found, rc=%ld\n",	\
+			name, IS_ERR(var));			\
+		var = NULL;					\
+		return -ENODEV;					\
+	}							\
+} while (0)
+
 #ifdef CONFIG_FB_MSM_HDMI_MHL
 static struct pm8xxx_gpio_init switch_to_usb_pmic_gpio_table[] = {
         PM8XXX_GPIO_INIT(USBz_AUDIO_SW, PM_GPIO_DIR_OUT,
@@ -1238,16 +1250,6 @@ static struct regulator *reg_8921_s4;
 static struct regulator *reg_8921_l11;
 static DEFINE_MUTEX(mhl_lpm_lock);
 
-
-#define _GET_REGULATOR(var, name) do {				\
-	var = regulator_get(NULL, name);			\
-	if (IS_ERR(var)) {					\
-		pr_err("'%s' regulator not found, rc=%ld\n",	\
-			name, IS_ERR(var));			\
-		var = NULL;					\
-		return -ENODEV;					\
-	}							\
-} while (0)
 
 uint32_t msm_hdmi_off_gpio[] = {
         GPIO_CFG(HDMI_DDC_CLK,  0, GPIO_CFG_INPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA),

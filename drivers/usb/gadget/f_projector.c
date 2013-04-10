@@ -425,7 +425,7 @@ static void projector_report_key_event(struct projector_dev *dev,
 	input_sync(kdev);
 }
 
-extern char *get_fb_addr(void);
+char *get_fb_addr(void) { return NULL; }
 
 static void send_fb(struct projector_dev *dev)
 {

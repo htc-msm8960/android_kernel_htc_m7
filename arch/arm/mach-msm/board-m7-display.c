@@ -56,6 +56,9 @@
 #define MSM_FB_OVERLAY1_WRITEBACK_SIZE (0)
 #endif  
 
+static void m7_display_on(struct msm_fb_data_type *mfd);
+static void m7_display_off(struct msm_fb_data_type *mfd);
+
 static struct resource msm_fb_resources[] = {
 	{
 		.flags = IORESOURCE_DMA,
@@ -521,7 +524,7 @@ int m7_mdp_gamma(void)
 	if (mdp_gamma == NULL)
 		return 0;
 
-	mdp_color_enhancement(mdp_gamma, mdp_gamma_count);
+        //	mdp_color_enhancement(mdp_gamma, mdp_gamma_count);
 	return 0;
 }
 
@@ -743,9 +746,9 @@ static int display_on_cmds_count = 0;
 static int display_off_cmds_count = 0;
 static struct dsi_cmd_desc *cmd_on_cmds = NULL;
 static int cmd_on_cmds_count = 0;
-static atomic_t lcd_backlight_off;
+//static atomic_t lcd_backlight_off;
 
-#define CABC_DIMMING_SWITCH
+//#define CABC_DIMMING_SWITCH
 
 static char enter_sleep[2] = {0x10, 0x00}; 
 static char exit_sleep[2] = {0x11, 0x00}; 
@@ -1368,6 +1371,8 @@ static int m7_lcd_on(struct platform_device *pdev)
 	if (mfd->key != MFD_KEY)
 		return -EINVAL;
 
+        m7_display_on(mfd);
+
 	mipi  = &mfd->panel_info.mipi;
 	if (!first_init) {
 		if (mipi->mode == DSI_VIDEO_MODE) {
@@ -1401,6 +1406,8 @@ static int m7_lcd_off(struct platform_device *pdev)
 		return -EINVAL;
 
 	resume_blk = 1;
+
+        m7_display_off(mfd);
 
 	PR_DISP_INFO("%s\n", __func__);
 	return 0;
@@ -1566,9 +1573,9 @@ static void m7_set_backlight(struct msm_fb_data_type *mfd)
 {
 	int rc;
 
-	if (mdp4_overlay_dsi_state_get() <= ST_DSI_SUSPEND) {
-		return;
-	}
+        //	if (mdp4_overlay_dsi_state_get() <= ST_DSI_SUSPEND) {
+        //		return;
+        //	}
 
 	if ((panel_type == PANEL_ID_M7_JDI_SAMSUNG) ||
 		(panel_type == PANEL_ID_M7_JDI_SAMSUNG_C2) ||
@@ -1671,6 +1678,7 @@ static void m7_set_backlight(struct msm_fb_data_type *mfd)
 
 	return;
 }
+
 static void m7_color_enhance(struct msm_fb_data_type *mfd, int on)
 {
 	if ((panel_type == PANEL_ID_M7_JDI_SAMSUNG) ||
@@ -1726,6 +1734,7 @@ static void m7_color_enhance(struct msm_fb_data_type *mfd, int on)
 		PR_DISP_INFO("switch color enhance\n");
 	}
 }
+
 static void m7_sre_ctrl(struct msm_fb_data_type *mfd, unsigned long level)
 {
 	static long prev_level = 0, current_stage = 0, prev_stage = 0, tmp_stage = 0;
@@ -1992,16 +2001,14 @@ static struct msm_fb_panel_data m7_panel_data = {
 	.on	= m7_lcd_on,
 	.off	= m7_lcd_off,
 	.set_backlight = m7_set_backlight,
-	.display_on = m7_display_on,
-	.display_off = m7_display_off,
-	.color_enhance = m7_color_enhance,
+        //	.color_enhance = m7_color_enhance,
 #ifdef CABC_DIMMING_SWITCH
-	.dimming_on = m7_dim_on,
+        //	.dimming_on = m7_dim_on,
 #endif
 #ifdef CONFIG_FB_MSM_CABC_LEVEL_CONTROL
 	.set_cabc = m7_set_cabc,
 #endif
-	.sre_ctrl = m7_sre_ctrl,
+        //	.sre_ctrl = m7_sre_ctrl,
 };
 
 static struct msm_panel_info pinfo;
@@ -2084,9 +2091,9 @@ static int __init mipi_cmd_jdi_renesas_init(void)
 	pinfo.pdest = DISPLAY_1;
 	pinfo.wait_cycle = 0;
 	pinfo.bpp = 24;
-	pinfo.width = 58;
-	pinfo.height = 103;
-	pinfo.camera_backlight = 183;
+        //	pinfo.width = 58;
+        //	pinfo.height = 103;
+        //	pinfo.camera_backlight = 183;
 
 	pinfo.lcdc.h_back_porch = 27;
 	pinfo.lcdc.h_front_porch = 38;
@@ -2163,9 +2170,9 @@ static int __init mipi_cmd_sharp_init(void)
 	pinfo.pdest = DISPLAY_1;
 	pinfo.wait_cycle = 0;
 	pinfo.bpp = 24;
-        pinfo.width = 58;
-        pinfo.height = 103;
-	pinfo.camera_backlight = 183;
+        //        pinfo.width = 58;
+        //        pinfo.height = 103;
+        //	pinfo.camera_backlight = 183;
 
 	pinfo.lcdc.h_back_porch = 27;
 	pinfo.lcdc.h_front_porch = 38;
@@ -2244,9 +2251,9 @@ static int __init mipi_video_sharp_init(void)
 	pinfo.pdest = DISPLAY_1;
 	pinfo.wait_cycle = 0;
 	pinfo.bpp = 24;
-	pinfo.width = 61;
-	pinfo.height = 110;
-	pinfo.camera_backlight = 176;
+        //	pinfo.width = 61;
+        //	pinfo.height = 110;
+        //	pinfo.camera_backlight = 176;
 
 	pinfo.lcdc.h_back_porch = 58;
 	pinfo.lcdc.h_front_porch = 100;
@@ -2329,9 +2336,9 @@ static int __init mipi_video_sony_init(void)
 	pinfo.pdest = DISPLAY_1;
 	pinfo.wait_cycle = 0;
 	pinfo.bpp = 24;
-	pinfo.width = 61;
-	pinfo.height = 110;
-	pinfo.camera_backlight = 176;
+        //	pinfo.width = 61;
+        //	pinfo.height = 110;
+        //	pinfo.camera_backlight = 176;
 
 	pinfo.lcdc.h_back_porch = 58;
 	pinfo.lcdc.h_front_porch = 100;
@@ -2405,9 +2412,9 @@ static int __init mipi_command_samsung_init(void)
 	pinfo.pdest = DISPLAY_1;
 	pinfo.wait_cycle = 0;
 	pinfo.bpp = 24;
-        pinfo.width = 58;
-        pinfo.height = 103;
-	pinfo.camera_backlight = 183;
+        //        pinfo.width = 58;
+        //        pinfo.height = 103;
+        //	pinfo.camera_backlight = 183;
 
 	pinfo.lcdc.h_back_porch = 27;
 	pinfo.lcdc.h_front_porch = 38;
@@ -2457,7 +2464,7 @@ static int __init mipi_command_samsung_init(void)
 
 	pinfo.mipi.frame_rate = 60;
 	
-	pinfo.lcdc.no_set_tear = 1;
+        //	pinfo.lcdc.no_set_tear = 1;
 
 	pinfo.mipi.dsi_phy_db = &dsi_jdi_cmd_mode_phy_db;
 
