@@ -1,4 +1,4 @@
-/* Copyright (c) 2011, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2011, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -18,4 +18,4 @@
 int mipi_renesas_device_register(struct msm_panel_info *pinfo,
 					u32 channel, u32 panel);
 
-#endif  
+#endif  /* MIPI_RENESAS_H */

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2010-2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -55,7 +55,7 @@
 #define VCD_FRAME_COMMAND_DEPTH          VCD_SINGLE_FRAME_COMMAND_CHANNEL
 #define VCD_GENEVIDC_COMMAND_DEPTH        1
 #define VCD_COMMAND_EXCLUSIVE            true
-#define DDL_HW_TIMEOUT_IN_MS             5000
+#define DDL_HW_TIMEOUT_IN_MS             1000
 #define DDL_STREAMBUF_ALIGN_GUARD_BYTES  0x7FF
 
 #define DDL_VIDC_1080P_48MHZ			(48000000)

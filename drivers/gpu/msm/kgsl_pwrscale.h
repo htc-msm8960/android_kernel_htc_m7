@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2010-2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -36,7 +36,6 @@ struct kgsl_pwrscale {
 	struct kgsl_pwrscale_policy *policy;
 	struct kobject kobj;
 	void *priv;
-	int gpu_busy;
 	int enabled;
 };
 

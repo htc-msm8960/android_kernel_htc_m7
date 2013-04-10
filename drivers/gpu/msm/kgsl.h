@@ -1,4 +1,4 @@
-/* Copyright (c) 2008-2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2008-2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -22,24 +22,33 @@
 #include <linux/cdev.h>
 #include <linux/regulator/consumer.h>
 #include <linux/mm.h>
-#include <linux/ion.h>
+
+#include <mach/kgsl.h>
 
 #define KGSL_NAME "kgsl"
 
+/* The number of memstore arrays limits the number of contexts allowed.
+ * If more contexts are needed, update multiple for MEMSTORE_SIZE
+ */
 #define KGSL_MEMSTORE_SIZE	((int)(PAGE_SIZE * 2))
 #define KGSL_MEMSTORE_GLOBAL	(0)
 #define KGSL_MEMSTORE_MAX	(KGSL_MEMSTORE_SIZE / \
 		sizeof(struct kgsl_devmemstore) - 1)
 
+/* Timestamp window used to detect rollovers (half of integer range) */
 #define KGSL_TIMESTAMP_WINDOW 0x80000000
 
+/*cache coherency ops */
 #define DRM_KGSL_GEM_CACHE_OP_TO_DEV	0x0001
 #define DRM_KGSL_GEM_CACHE_OP_FROM_DEV	0x0002
 
+/* The size of each entry in a page table */
 #define KGSL_PAGETABLE_ENTRY_SIZE  4
 
+/* Pagetable Virtual Address base */
 #define KGSL_PAGETABLE_BASE	0x10000000
 
+/* Extra accounting entries needed in the pagetable */
 #define KGSL_PT_EXTRA_ENTRIES      16
 
 #define KGSL_PAGETABLE_ENTRIES(_sz) (((_sz) >> PAGE_SHIFT) + \
@@ -51,36 +60,41 @@
 #define KGSL_PAGETABLE_COUNT 1
 #endif
 
+/* Casting using container_of() for structures that kgsl owns. */
 #define KGSL_CONTAINER_OF(ptr, type, member) \
 		container_of(ptr, type, member)
 
+/* A macro for memory statistics - add the new size to the stat and if
+   the statisic is greater then _max, set _max
+*/
 
 #define KGSL_STATS_ADD(_size, _stat, _max) \
 	do { _stat += (_size); if (_stat > _max) _max = _stat; } while (0)
 
 struct kgsl_device;
+struct kgsl_context;
 
 struct kgsl_driver {
 	struct cdev cdev;
 	dev_t major;
 	struct class *class;
-	
+	/* Virtual device for managing the core */
 	struct device virtdev;
-	
+	/* Kobjects for storing pagetable and process statistics */
 	struct kobject *ptkobj;
 	struct kobject *prockobj;
 	struct kgsl_device *devp[KGSL_DEVICE_MAX];
 
-	
+	/* Global lilst of open processes */
 	struct list_head process_list;
-	
+	/* Global list of pagetables */
 	struct list_head pagetable_list;
-	
+	/* Spinlock for accessing the pagetable list */
 	spinlock_t ptlock;
-	
+	/* Mutex for accessing the process list */
 	struct mutex process_mutex;
 
-	
+	/* Mutex for protecting the device list */
 	struct mutex devlock;
 
 	void *ptpool;
@@ -90,14 +104,10 @@ struct kgsl_driver {
 		unsigned int vmalloc_max;
 		unsigned int page_alloc;
 		unsigned int page_alloc_max;
-		unsigned int page_alloc_kernel;
 		unsigned int coherent;
 		unsigned int coherent_max;
 		unsigned int mapped;
 		unsigned int mapped_max;
-		unsigned int pre_alloc;
-		unsigned int pre_alloc_max;
-		unsigned int pre_alloc_kernel;
 		unsigned int histogram[16];
 	} stats;
 };
@@ -115,45 +125,36 @@ struct kgsl_memdesc_ops {
 	int (*map_kernel_mem)(struct kgsl_memdesc *);
 };
 
+/* Internal definitions for memdesc->priv */
 #define KGSL_MEMDESC_GUARD_PAGE BIT(0)
+/* Set if the memdesc is mapped into all pagetables */
+#define KGSL_MEMDESC_GLOBAL BIT(1)
 
+/* shared memory allocation */
 struct kgsl_memdesc {
 	struct kgsl_pagetable *pagetable;
 	void *hostptr;
 	unsigned int gpuaddr;
 	unsigned int physaddr;
 	unsigned int size;
-	unsigned int priv;
+	unsigned int priv; /* Internal flags and settings */
 	struct scatterlist *sg;
-	unsigned int sglen;
+	unsigned int sglen; /* Active entries in the sglist */
+	unsigned int sglen_alloc;  /* Allocated entries in the sglist */
 	struct kgsl_memdesc_ops *ops;
-	int flags;
-	struct ion_handle* handle;
-	struct kgsl_process_private *private;
+	unsigned int flags; /* Flags set from userspace */
 };
 
-#if 0
-#define KGSL_MEM_ENTRY_KERNEL		0
-#define KGSL_MEM_ENTRY_PMEM		1
-#define KGSL_MEM_ENTRY_ASHMEM		2
-#define KGSL_MEM_ENTRY_USER		3
-#define KGSL_MEM_ENTRY_ION		4
-#define KGSL_MEM_ENTRY_PAGE_ALLOC	5
-#define KGSL_MEM_ENTRY_PRE_ALLOC	6
-#define KGSL_MEM_ENTRY_MAX		7
-#else
-enum {
-	KGSL_MEM_ENTRY_KERNEL = 0,
-	KGSL_MEM_ENTRY_PMEM,
-	KGSL_MEM_ENTRY_ASHMEM,
-	KGSL_MEM_ENTRY_USER,
-	KGSL_MEM_ENTRY_ION,
-	KGSL_MEM_ENTRY_PAGE_ALLOC,
-	KGSL_MEM_ENTRY_PRE_ALLOC,
-	KGSL_MEM_ENTRY_MAX,
-};
-#endif
+/* List of different memory entry types */
 
+#define KGSL_MEM_ENTRY_KERNEL 0
+#define KGSL_MEM_ENTRY_PMEM   1
+#define KGSL_MEM_ENTRY_ASHMEM 2
+#define KGSL_MEM_ENTRY_USER   3
+#define KGSL_MEM_ENTRY_ION    4
+#define KGSL_MEM_ENTRY_MAX    5
+
+/* List of flags */
 
 #define KGSL_MEM_ENTRY_FROZEN (1 << 0)
 
@@ -165,6 +166,8 @@ struct kgsl_mem_entry {
 	void *priv_data;
 	struct rb_node node;
 	unsigned int context_id;
+	/* back pointer to private structure under whose context this
+	* allocation is made */
 	struct kgsl_process_private *priv;
 };
 
@@ -175,13 +178,16 @@ struct kgsl_mem_entry {
 #endif
 
 void kgsl_mem_entry_destroy(struct kref *kref);
+int kgsl_postmortem_dump(struct kgsl_device *device, int manual);
 
-struct kgsl_mem_entry *kgsl_get_mem_entry(unsigned int ptbase,
-		unsigned int gpuaddr, unsigned int size);
+struct kgsl_mem_entry *kgsl_get_mem_entry(struct kgsl_device *device,
+		unsigned int ptbase, unsigned int gpuaddr, unsigned int size);
 
 struct kgsl_mem_entry *kgsl_sharedmem_find_region(
 	struct kgsl_process_private *private, unsigned int gpuaddr,
 	size_t size);
+
+void kgsl_get_memory_usage(char *str, size_t len, unsigned int memflags);
 
 int kgsl_add_event(struct kgsl_device *device, u32 id, u32 ts,
 	void (*cb)(struct kgsl_device *, void *, u32, u32), void *priv,
@@ -189,6 +195,9 @@ int kgsl_add_event(struct kgsl_device *device, u32 id, u32 ts,
 
 void kgsl_cancel_events(struct kgsl_device *device,
 	void *owner);
+
+void kgsl_cancel_events_ctxt(struct kgsl_device *device,
+	struct kgsl_context *context);
 
 extern const struct dev_pm_ops kgsl_pm_ops;
 
@@ -245,14 +254,19 @@ static inline uint8_t *kgsl_gpuaddr_to_vaddr(struct kgsl_memdesc *memdesc,
 
 static inline int timestamp_cmp(unsigned int a, unsigned int b)
 {
-	
+	/* check for equal */
 	if (a == b)
 		return 0;
 
-	
+	/* check for greater-than for non-rollover case */
 	if ((a > b) && (a - b < KGSL_TIMESTAMP_WINDOW))
 		return 1;
 
+	/* check for greater-than for rollover case
+	 * note that <= is required to ensure that consistent
+	 * results are returned for values whose difference is
+	 * equal to the window size
+	 */
 	a += KGSL_TIMESTAMP_WINDOW;
 	b += KGSL_TIMESTAMP_WINDOW;
 	return ((a > b) && (a - b <= KGSL_TIMESTAMP_WINDOW)) ? 1 : -1;
@@ -270,4 +284,4 @@ kgsl_mem_entry_put(struct kgsl_mem_entry *entry)
 	kref_put(&entry->refcount, kgsl_mem_entry_destroy);
 }
 
-#endif 
+#endif /* __KGSL_H */

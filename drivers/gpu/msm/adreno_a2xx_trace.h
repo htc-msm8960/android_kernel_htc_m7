@@ -1,4 +1,4 @@
-/* Copyright (c) 2011, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2011, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -25,6 +25,9 @@
 
 struct kgsl_device;
 
+/*
+ * Tracepoint for a2xx irq. Includes status info
+ */
 TRACE_EVENT(kgsl_a2xx_irq_status,
 
 	TP_PROTO(struct kgsl_device *device, unsigned int master_status,
@@ -69,6 +72,7 @@ TRACE_EVENT(kgsl_a2xx_irq_status,
 	)
 );
 
-#endif 
+#endif /* _ADRENO_A2XX_TRACE_H */
 
+/* This part must be outside protection */
 #include <trace/define_trace.h>

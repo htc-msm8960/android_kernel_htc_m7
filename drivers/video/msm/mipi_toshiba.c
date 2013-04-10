@@ -1,4 +1,4 @@
-/* Copyright (c) 2008-2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2008-2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -78,7 +78,7 @@ static char dispV_timing[5] = {0xc1, 0x00, 0x10, 0x00, 0x01};
 static char dispCtrl[3] = {0xc3, 0x00, 0x19};
 static char test_mode_c4[2] = {0xc4, 0x03};
 static char dispH_timing[15] = {
-	
+	/* TYPE_DCS_LWRITE */
 	0xc5, 0x00, 0x01, 0x05,
 	0x04, 0x5e, 0x00, 0x00,
 	0x00, 0x00, 0x0b, 0x17,
@@ -224,6 +224,11 @@ static int mipi_toshiba_lcd_off(struct platform_device *pdev)
 	return 0;
 }
 
+static int mipi_toshiba_lcd_late_init(struct platform_device *pdev)
+{
+	return 0;
+}
+
 void mipi_bklight_pwm_cfg(void)
 {
 	if (mipi_toshiba_pdata && mipi_toshiba_pdata->dsi_pwm_cfg)
@@ -296,6 +301,7 @@ static struct platform_driver this_driver = {
 static struct msm_fb_panel_data toshiba_panel_data = {
 	.on		= mipi_toshiba_lcd_on,
 	.off		= mipi_toshiba_lcd_off,
+	.late_init	= mipi_toshiba_lcd_late_init,
 	.set_backlight  = mipi_toshiba_set_backlight,
 };
 

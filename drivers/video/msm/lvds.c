@@ -1,4 +1,4 @@
-/* Copyright (c) 2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -67,7 +67,7 @@ static void lvds_init(struct msm_fb_data_type *mfd)
 	MDP_OUTP(MDP_BASE + 0xc2034, 0x33);
 	usleep(1000);
 
-	
+	/* LVDS PHY PLL configuration */
 	if (mfd->panel_info.clk_rate == 74250000) {
 		MDP_OUTP(MDP_BASE + 0xc3000, 0x08);
 		MDP_OUTP(MDP_BASE + 0xc3004, 0x4c);
@@ -92,18 +92,18 @@ static void lvds_init(struct msm_fb_data_type *mfd)
 		MDP_OUTP(MDP_BASE + 0xc3064, 0x05);
 		MDP_OUTP(MDP_BASE + 0xc3050, 0x20);
 	} else {
-		MDP_OUTP(MDP_BASE + 0xc3004, 0x62);
+		MDP_OUTP(MDP_BASE + 0xc3004, 0x8f);
 		MDP_OUTP(MDP_BASE + 0xc3008, 0x30);
-		MDP_OUTP(MDP_BASE + 0xc300c, 0xc4);
+		MDP_OUTP(MDP_BASE + 0xc300c, 0xc6);
 		MDP_OUTP(MDP_BASE + 0xc3014, 0x10);
-		MDP_OUTP(MDP_BASE + 0xc3018, 0x05);
+		MDP_OUTP(MDP_BASE + 0xc3018, 0x07);
 		MDP_OUTP(MDP_BASE + 0xc301c, 0x62);
 		MDP_OUTP(MDP_BASE + 0xc3020, 0x41);
 		MDP_OUTP(MDP_BASE + 0xc3024, 0x0d);
 	}
 
 	MDP_OUTP(MDP_BASE + 0xc3000, 0x01);
-	
+	/* Wait until LVDS PLL is locked and ready */
 	while (!readl_relaxed(MDP_BASE + 0xc3080))
 		cpu_relax();
 
@@ -120,7 +120,7 @@ static void lvds_init(struct msm_fb_data_type *mfd)
 
 	writel_relaxed(0x05, mmss_cc_base + 0x0094);
 	writel_relaxed(0x02, mmss_cc_base + 0x0264);
-	
+	/* Wait until LVDS pixel clock output is enabled */
 	mb();
 
 	if (mfd->panel_info.bpp == 24) {
@@ -129,56 +129,56 @@ static void lvds_init(struct msm_fb_data_type *mfd)
 		    lvds_pdata->lvds_pixel_remap()) {
 			if (lvds_pdata->lvds_pixel_remap() ==
 				LVDS_PIXEL_MAP_PATTERN_2) {
-				
+				/* MDP_LCDC_LVDS_MUX_CTL_FOR_D0_3_TO_0 */
 				MDP_OUTP(MDP_BASE +  0xc2014, 0x070A1B1B);
-				
+				/* MDP_LCDC_LVDS_MUX_CTL_FOR_D0_6_TO_4 */
 				MDP_OUTP(MDP_BASE +  0xc2018, 0x00040506);
-				
+				/* MDP_LCDC_LVDS_MUX_CTL_FOR_D1_3_TO_0 */
 				MDP_OUTP(MDP_BASE +  0xc201c, 0x12131B1B);
-				
+				/* MDP_LCDC_LVDS_MUX_CTL_FOR_D1_6_TO_4 */
 				MDP_OUTP(MDP_BASE +  0xc2020, 0x000B0C0D);
-				
+				/* MDP_LCDC_LVDS_MUX_CTL_FOR_D2_3_TO_0 */
 				MDP_OUTP(MDP_BASE +  0xc2024, 0x191A1B1B);
-				
+				/* MDP_LCDC_LVDS_MUX_CTL_FOR_D2_6_TO_4 */
 				MDP_OUTP(MDP_BASE +  0xc2028, 0x00141518);
-				
+				/* MDP_LCDC_LVDS_MUX_CTL_FOR_D3_3_TO_0 */
 				MDP_OUTP(MDP_BASE +  0xc202c, 0x171B1B1B);
-				
+				/* MDP_LCDC_LVDS_MUX_CTL_FOR_D3_6_TO_4 */
 				MDP_OUTP(MDP_BASE +  0xc2030, 0x000e0f16);
 			} else {
-				
+				/* MDP_LCDC_LVDS_MUX_CTL_FOR_D0_3_TO_0 */
 				MDP_OUTP(MDP_BASE +  0xc2014, 0x05080001);
-				
+				/* MDP_LCDC_LVDS_MUX_CTL_FOR_D0_6_TO_4 */
 				MDP_OUTP(MDP_BASE +  0xc2018, 0x00020304);
-				
+				/* MDP_LCDC_LVDS_MUX_CTL_FOR_D1_3_TO_0 */
 				MDP_OUTP(MDP_BASE +  0xc201c, 0x1011090a);
-				
+				/* MDP_LCDC_LVDS_MUX_CTL_FOR_D1_6_TO_4 */
 				MDP_OUTP(MDP_BASE +  0xc2020, 0x000b0c0d);
-				
+				/* MDP_LCDC_LVDS_MUX_CTL_FOR_D2_3_TO_0 */
 				MDP_OUTP(MDP_BASE +  0xc2024, 0x191a1213);
-				
+				/* MDP_LCDC_LVDS_MUX_CTL_FOR_D2_6_TO_4 */
 				MDP_OUTP(MDP_BASE +  0xc2028, 0x00141518);
-				
+				/* MDP_LCDC_LVDS_MUX_CTL_FOR_D3_3_TO_0 */
 				MDP_OUTP(MDP_BASE +  0xc202c, 0x171b0607);
-				
+				/* MDP_LCDC_LVDS_MUX_CTL_FOR_D3_6_TO_4 */
 				MDP_OUTP(MDP_BASE +  0xc2030, 0x000e0f16);
 			}
 		} else {
-			
+			/* MDP_LCDC_LVDS_MUX_CTL_FOR_D0_3_TO_0 */
 			MDP_OUTP(MDP_BASE +  0xc2014, 0x03040508);
-			
+			/* MDP_LCDC_LVDS_MUX_CTL_FOR_D0_6_TO_4 */
 			MDP_OUTP(MDP_BASE +  0xc2018, 0x00000102);
-			
+			/* MDP_LCDC_LVDS_MUX_CTL_FOR_D1_3_TO_0 */
 			MDP_OUTP(MDP_BASE +  0xc201c, 0x0c0d1011);
-			
+			/* MDP_LCDC_LVDS_MUX_CTL_FOR_D1_6_TO_4 */
 			MDP_OUTP(MDP_BASE +  0xc2020, 0x00090a0b);
-			
-			MDP_OUTP(MDP_BASE +  0xc2024, 0x151a191a);
-			
+			/* MDP_LCDC_LVDS_MUX_CTL_FOR_D2_3_TO_0 */
+			MDP_OUTP(MDP_BASE +  0xc2024, 0x1518191a);
+			/* MDP_LCDC_LVDS_MUX_CTL_FOR_D2_6_TO_4 */
 			MDP_OUTP(MDP_BASE +  0xc2028, 0x00121314);
-			
+			/* MDP_LCDC_LVDS_MUX_CTL_FOR_D3_3_TO_0 */
 			MDP_OUTP(MDP_BASE +  0xc202c, 0x0f16171b);
-			
+			/* MDP_LCDC_LVDS_MUX_CTL_FOR_D3_6_TO_4 */
 			MDP_OUTP(MDP_BASE +  0xc2030, 0x0006070e);
 		}
 		if (mfd->panel_info.lvds.channel_mode ==
@@ -192,17 +192,17 @@ static void lvds_init(struct msm_fb_data_type *mfd)
 			lvds_phy_cfg0 = BIT(6);
 		}
 	} else if (mfd->panel_info.bpp == 18) {
-		
+		/* MDP_LCDC_LVDS_MUX_CTL_FOR_D0_3_TO_0 */
 		MDP_OUTP(MDP_BASE +  0xc2014, 0x03040508);
-		
+		/* MDP_LCDC_LVDS_MUX_CTL_FOR_D0_6_TO_4 */
 		MDP_OUTP(MDP_BASE +  0xc2018, 0x00000102);
-		
+		/* MDP_LCDC_LVDS_MUX_CTL_FOR_D1_3_TO_0 */
 		MDP_OUTP(MDP_BASE +  0xc201c, 0x0c0d1011);
-		
+		/* MDP_LCDC_LVDS_MUX_CTL_FOR_D1_6_TO_4 */
 		MDP_OUTP(MDP_BASE +  0xc2020, 0x00090a0b);
-		
+		/* MDP_LCDC_LVDS_MUX_CTL_FOR_D2_3_TO_0 */
 		MDP_OUTP(MDP_BASE +  0xc2024, 0x1518191a);
-		
+		/* MDP_LCDC_LVDS_MUX_CTL_FOR_D2_6_TO_4 */
 		MDP_OUTP(MDP_BASE +  0xc2028, 0x00121314);
 
 		if (mfd->panel_info.lvds.channel_mode ==
@@ -219,17 +219,17 @@ static void lvds_init(struct msm_fb_data_type *mfd)
 		BUG();
 	}
 
-	
+	/* MDP_LVDSPHY_CFG0 */
 	MDP_OUTP(MDP_BASE +  0xc3100, lvds_phy_cfg0);
-	
+	/* MDP_LCDC_LVDS_INTF_CTL */
 	MDP_OUTP(MDP_BASE +  0xc2000, lvds_intf);
 	MDP_OUTP(MDP_BASE +  0xc3108, 0x30);
 	lvds_phy_cfg0 |= BIT(4);
 
-	
+	/* Wait until LVDS PHY registers are configured */
 	mb();
 	usleep(1);
-	
+	/* MDP_LVDSPHY_CFG0, enable serialization */
 	MDP_OUTP(MDP_BASE +  0xc3100, lvds_phy_cfg0);
 }
 
@@ -254,10 +254,6 @@ static int lvds_off(struct platform_device *pdev)
 	if (lvds_pdata && lvds_pdata->lcdc_gpio_config)
 		ret = lvds_pdata->lcdc_gpio_config(0);
 
-#ifdef CONFIG_MSM_BUS_SCALING
-	mdp_bus_scale_update_request(0);
-#endif
-
 	return ret;
 }
 
@@ -273,9 +269,6 @@ static int lvds_on(struct platform_device *pdev)
 
 	if (!panel_pixclock_freq)
 		panel_pixclock_freq = mfd->fbi->var.pixclock;
-#ifdef CONFIG_MSM_BUS_SCALING
-	mdp_bus_scale_update_request(2);
-#endif
 	mfd = platform_get_drvdata(pdev);
 
 	if (lvds_clk) {
@@ -336,9 +329,15 @@ static int lvds_probe(struct platform_device *pdev)
 	if (!mdp_dev)
 		return -ENOMEM;
 
+	/*
+	 * link to the latest pdev
+	 */
 	mfd->pdev = mdp_dev;
 	mfd->dest = DISPLAY_LCDC;
 
+	/*
+	 * alloc panel device data
+	 */
 	if (platform_device_add_data
 	    (mdp_dev, pdev->dev.platform_data,
 	     sizeof(struct msm_fb_panel_data))) {
@@ -346,11 +345,17 @@ static int lvds_probe(struct platform_device *pdev)
 		platform_device_put(mdp_dev);
 		return -ENOMEM;
 	}
+	/*
+	 * data chain
+	 */
 	pdata = (struct msm_fb_panel_data *)mdp_dev->dev.platform_data;
 	pdata->on = lvds_on;
 	pdata->off = lvds_off;
 	pdata->next = pdev;
 
+	/*
+	 * get/set panel specific fb info
+	 */
 	mfd->panel_info = pdata->panel_info;
 
 	if (mfd->index == 0)
@@ -371,7 +376,13 @@ static int lvds_probe(struct platform_device *pdev)
 	fbi->var.hsync_len = mfd->panel_info.lcdc.h_pulse_width;
 	fbi->var.vsync_len = mfd->panel_info.lcdc.v_pulse_width;
 
+	/*
+	 * set driver data
+	 */
 	platform_set_drvdata(mdp_dev, mfd);
+	/*
+	 * register in mdp driver
+	 */
 	rc = platform_device_add(mdp_dev);
 	if (rc)
 		goto lvds_probe_err;

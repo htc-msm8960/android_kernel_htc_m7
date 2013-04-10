@@ -2,7 +2,7 @@
  * drivers/gpu/ion/ion_system_heap.c
  *
  * Copyright (C) 2011 Google, Inc.
- * Copyright (c) 2011-2012, Code Aurora Forum. All rights reserved.
+ * Copyright (c) 2011-2012, The Linux Foundation. All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -27,6 +27,7 @@
 #include "ion_priv.h"
 #include <mach/memory.h>
 #include <asm/cacheflush.h>
+#include <linux/msm_ion.h>
 
 static atomic_t system_heap_allocated;
 static atomic_t system_contig_heap_allocated;
@@ -206,6 +207,10 @@ int ion_system_heap_cache_ops(struct ion_heap *heap, struct ion_buffer *buffer,
 		for_each_sg(table->sgl, sg, table->nents, i) {
 			struct page *page = sg_page(sg);
 			pstart = page_to_phys(page);
+			/*
+			 * If page -> phys is returning NULL, something
+			 * has really gone wrong...
+			 */
 			if (!pstart) {
 				WARN(1, "Could not translate virtual address to physical address\n");
 				return -EINVAL;
@@ -478,7 +483,7 @@ int ion_system_contig_heap_map_iommu(struct ion_buffer *buffer,
 	}
 	page = virt_to_page(buffer->vaddr);
 
-	sglist = vmalloc(sizeof(*sglist));
+	sglist = kmalloc(sizeof(*sglist), GFP_KERNEL);
 	if (!sglist)
 		goto out1;
 
@@ -500,13 +505,13 @@ int ion_system_contig_heap_map_iommu(struct ion_buffer *buffer,
 		if (ret)
 			goto out2;
 	}
-	vfree(sglist);
+	kfree(sglist);
 	return ret;
 out2:
 	iommu_unmap_range(domain, data->iova_addr, buffer->size);
 
 out1:
-	vfree(sglist);
+	kfree(sglist);
 	msm_free_iova_address(data->iova_addr, domain_num, partition_num,
 						data->mapped_size);
 out:

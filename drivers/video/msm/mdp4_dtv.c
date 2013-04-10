@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2010-2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -38,6 +38,7 @@ static int dtv_remove(struct platform_device *pdev);
 
 static int dtv_off(struct platform_device *pdev);
 static int dtv_on(struct platform_device *pdev);
+static int dtv_off_sub(void);
 
 static struct platform_device *pdev_list[MSM_FB_MAX_DEV_LIST];
 static int pdev_list_cnt;
@@ -45,6 +46,9 @@ static int pdev_list_cnt;
 static struct clk *tv_src_clk;
 static struct clk *hdmi_clk;
 static struct clk *mdp_tv_clk;
+static struct platform_device *dtv_pdev;
+static struct workqueue_struct *dtv_work_queue;
+static struct work_struct dtv_off_work;
 
 
 static int mdp4_dtv_runtime_suspend(struct device *dev)
@@ -86,8 +90,48 @@ static struct clk *ebi1_clk;
 static int dtv_off(struct platform_device *pdev)
 {
 	int ret = 0;
+	struct msm_fb_data_type *mfd = NULL;
 
-	ret = panel_next_off(pdev);
+	if (!pdev) {
+		pr_err("%s: FAILED: invalid arg\n", __func__);
+		return -EINVAL;
+	}
+
+	mfd = platform_get_drvdata(pdev);
+	if (!mfd) {
+		pr_err("%s: FAILED: invalid mfd\n", __func__);
+		return -EINVAL;
+	}
+
+	dtv_pdev = pdev;
+	/*
+	 * If it's a suspend operation then handle the device
+	 * power down synchronously.
+	 * Otherwise, queue work item to handle power down sequence.
+	 * This is needed since we need to wait for the audio engine
+	 * to shutdown first before we turn off the DTV device.
+	 */
+	if (!mfd->suspend.op_suspend) {
+		pr_debug("%s: Queuing work to turn off HDMI core\n", __func__);
+		queue_work(dtv_work_queue, &dtv_off_work);
+	} else {
+		pr_debug("%s: turning off HDMI core\n", __func__);
+		ret = dtv_off_sub();
+	}
+
+	return ret;
+}
+
+static int dtv_off_sub(void)
+{
+	int ret = 0;
+
+	if (!dtv_pdev) {
+		pr_err("%s: FAILED: invalid arg\n", __func__);
+		return -EINVAL;
+	}
+
+	ret = panel_next_off(dtv_pdev);
 
 	pr_info("%s\n", __func__);
 
@@ -112,9 +156,10 @@ static int dtv_off(struct platform_device *pdev)
 	return ret;
 }
 
-#ifdef CONFIG_FB_MSM_HDMI_MSM_PANEL_HDCP_SUPPORT
-extern atomic_t read_an_complete;
-#endif
+static void dtv_off_work_func(struct work_struct *work)
+{
+	dtv_off_sub();
+}
 
 static int dtv_on(struct platform_device *pdev)
 {
@@ -122,11 +167,14 @@ static int dtv_on(struct platform_device *pdev)
 	struct msm_fb_data_type *mfd;
 	unsigned long panel_pixclock_freq , pm_qos_rate;
 
+	/* If a power down is already underway, wait for it to finish */
+	flush_work_sync(&dtv_off_work);
+
 	mfd = platform_get_drvdata(pdev);
 	panel_pixclock_freq = mfd->fbi->var.pixclock;
 
 	if (panel_pixclock_freq > 58000000)
-		
+		/* pm_qos_rate should be in Khz */
 		pm_qos_rate = panel_pixclock_freq / 1000 ;
 	else
 		pm_qos_rate = 58000;
@@ -160,10 +208,6 @@ static int dtv_on(struct platform_device *pdev)
 	pr_info("%s: tv_src_clk=%dkHz, pm_qos_rate=%ldkHz, [%d]\n", __func__,
 		mfd->fbi->var.pixclock/1000, pm_qos_rate, ret);
 	mfd->panel_info.clk_rate = mfd->fbi->var.pixclock;
-#ifdef CONFIG_FB_MSM_HDMI_MSM_PANEL_HDCP_SUPPORT
-	while(atomic_read(&read_an_complete))
-		msleep(1);
-#endif
 	clk_prepare_enable(hdmi_clk);
 	clk_reset(hdmi_clk, CLK_RESET_ASSERT);
 	udelay(20);
@@ -223,6 +267,8 @@ static int dtv_probe(struct platform_device *pdev)
 		return 0;
 	}
 
+	dtv_work_queue = create_singlethread_workqueue("dtv_work");
+	INIT_WORK(&dtv_off_work, dtv_off_work_func);
 	mfd = platform_get_drvdata(pdev);
 
 	if (!mfd)
@@ -238,9 +284,15 @@ static int dtv_probe(struct platform_device *pdev)
 	if (!mdp_dev)
 		return -ENOMEM;
 
+	/*
+	 * link to the latest pdev
+	 */
 	mfd->pdev = mdp_dev;
 	mfd->dest = DISPLAY_LCDC;
 
+	/*
+	 * alloc panel device data
+	 */
 	if (platform_device_add_data
 	    (mdp_dev, pdev->dev.platform_data,
 	     sizeof(struct msm_fb_panel_data))) {
@@ -248,11 +300,17 @@ static int dtv_probe(struct platform_device *pdev)
 		platform_device_put(mdp_dev);
 		return -ENOMEM;
 	}
+	/*
+	 * data chain
+	 */
 	pdata = (struct msm_fb_panel_data *)mdp_dev->dev.platform_data;
 	pdata->on = dtv_on;
 	pdata->off = dtv_off;
 	pdata->next = pdev;
 
+	/*
+	 * get/set panel specific fb info
+	 */
 	mfd->panel_info = pdata->panel_info;
 	if (hdmi_prim_display)
 		mfd->fb_imgType = MSMFB_DEFAULT_TYPE;
@@ -268,8 +326,14 @@ static int dtv_probe(struct platform_device *pdev)
 	fbi->var.hsync_len = mfd->panel_info.lcdc.h_pulse_width;
 	fbi->var.vsync_len = mfd->panel_info.lcdc.v_pulse_width;
 
+	/*
+	 * set driver data
+	 */
 	platform_set_drvdata(mdp_dev, mfd);
 
+	/*
+	 * register in mdp driver
+	 */
 	rc = platform_device_add(mdp_dev);
 	if (rc)
 		goto dtv_probe_err;
@@ -292,6 +356,8 @@ dtv_probe_err:
 
 static int dtv_remove(struct platform_device *pdev)
 {
+	if (dtv_work_queue)
+		destroy_workqueue(dtv_work_queue);
 #ifdef CONFIG_MSM_BUS_SCALING
 	if (dtv_pdata && dtv_pdata->bus_scale_table &&
 		dtv_bus_scale_handle > 0)

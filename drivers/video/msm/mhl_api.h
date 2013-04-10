@@ -1,5 +1,5 @@
 
-/* Copyright (c) 2011, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2011, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -23,4 +23,4 @@ static bool mhl_is_connected(void)
 }
 #endif
 
-#endif 
+#endif /* __MHL_API_H__ */

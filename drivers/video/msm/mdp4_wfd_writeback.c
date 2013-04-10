@@ -1,4 +1,4 @@
-/* Copyright (c) 2011, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2011, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -47,6 +47,9 @@ static int writeback_probe(struct platform_device *pdev)
 	mdp_dev = platform_device_alloc("mdp", pdev->id);
 	if (!mdp_dev)
 		return -ENOMEM;
+	/*
+	 * link to the latest pdev
+	 */
 	mfd->pdev = mdp_dev;
 	mfd->dest = DISPLAY_LCD;
 
@@ -63,11 +66,21 @@ static int writeback_probe(struct platform_device *pdev)
 	pdata->off = writeback_off;
 	pdata->next = pdev;
 
+	/*
+	 * get/set panel specific fb info
+	 */
 	mfd->panel_info = pdata->panel_info;
 
 	mfd->fb_imgType = MDP_RGB_565;
 
 	platform_set_drvdata(mdp_dev, mfd);
+
+	mfd->writeback_sdev.name = "wfd";
+	rc = switch_dev_register(&mfd->writeback_sdev);
+	if (rc) {
+		pr_err("Failed to setup switch dev for writeback panel");
+		return rc;
+	}
 
 	rc = platform_device_add(mdp_dev);
 	if (rc) {
@@ -78,8 +91,16 @@ static int writeback_probe(struct platform_device *pdev)
 	return rc;
 }
 
+static int writeback_remove(struct platform_device *pdev)
+{
+	struct msm_fb_data_type *mfd = platform_get_drvdata(pdev);
+	switch_dev_unregister(&mfd->writeback_sdev);
+	return 0;
+}
+
 static struct platform_driver writeback_driver = {
 	.probe = writeback_probe,
+	.remove = writeback_remove,
 	.driver = {
 		.name = "writeback",
 	},

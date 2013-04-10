@@ -78,13 +78,6 @@ config MSM_KGSL_PAGE_TABLE_SIZE
 	  Sets the pagetable size used by the MMU.  The max value
 	  is 0xFFF0000 or (256M - 64K).
 
-config MSM_KGSL_PAGE_TABLE_SIZE_FOR_IOMMU
-	hex "Size of pagetables for iommu"
-	default 0x1FE00000
-	---help---
-	Sets the pagetable size used by the IOMMU.  The max value
-	is 0x1FE00000 or (512M - 1536K - little interval).
-
 config MSM_KGSL_PAGE_TABLE_COUNT
 	int "Minimum of concurrent pagetables to support"
 	default 8
@@ -103,21 +96,3 @@ config MSM_KGSL_DISABLE_SHADOW_WRITES
 	bool "Disable register shadow writes for context switches"
 	default n
 	depends on MSM_KGSL
-
-config MSM_KGSL_GPU_USAGE
-	bool "Enable sysfs node of GPU usage per process"
-	default n
-
-config MSM_KGSL_DEFAULT_GPUMMU
-	bool "Prefer gpummu than iommu"
-	default n
-
-config MSM_KGSL_GPU_USAGE_SYSTRACE
-        bool "Enable kgsl_usage node for ftrace gpu usage event"
-        default y
-
-config MSM_KGSL_KILL_HANG_PROCESS
-	bool "Enable killing recoverable gpu hang process routine"
-	default y
-	---help---
-	We only enable this config in CRC branch.

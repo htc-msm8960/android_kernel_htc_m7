@@ -14,7 +14,6 @@ obj-$(CONFIG_DEBUG_FS) += mdp_debugfs.o
 
 ifeq ($(CONFIG_FB_MSM_MDP40),y)
 obj-y += mdp4_util.o
-obj-y += mdp4_hsic.o
 else
 obj-y += mdp_hw_init.o
 obj-y += mdp_ppp.o
@@ -121,7 +120,7 @@ endif
 
 ifeq ($(CONFIG_FB_MSM_MIPI_PANEL_DETECT),y)
 obj-y += mipi_toshiba_video_wvga_pt.o mipi_toshiba_video_wsvga_pt.o mipi_toshiba_video_wuxga.o
-obj-y += mipi_novatek_video_qhd_pt.o mipi_novatek_cmd_qhd_pt.o mipi_novatek_cmd_720p.o
+obj-y += mipi_novatek_video_qhd_pt.o mipi_novatek_cmd_qhd_pt.o
 obj-y += mipi_orise_video_720p_pt.o mipi_orise_cmd_720p_pt.o
 obj-y += mipi_renesas_video_fwvga_pt.o mipi_renesas_cmd_fwvga_pt.o
 obj-y += mipi_NT35510_video_wvga_pt.o mipi_NT35510_cmd_wvga_pt.o
@@ -174,6 +173,11 @@ obj-$(CONFIG_FB_MSM_LCDC_TRULY_HVGA_IPS3P2335) += lcdc_truly_ips3p2335.o
 
 obj-$(CONFIG_FB_MSM_TVOUT) += tvout_msm.o
 
+ccflags-y := -I$(src)/mhl
+obj-$(CONFIG_FB_MSM_HDMI_MHL_8334) += mhl-8334.o
+mhl-8334-objs  += mhl/mhl_8334.o
+mhl-8334-objs  += mhl/mhl_i2c_utils.o
+
 obj-$(CONFIG_FB_MSM_EXTMDDI_SVGA) += mddi_ext_lcd.o
 
 obj-$(CONFIG_FB_MSM_WRITEBACK_MSM_PANEL) += mdp4_wfd_writeback_panel.o
@@ -189,6 +193,5 @@ endif
 
 obj-$(CONFIG_MSM_VIDC_1080P) += vidc/
 obj-$(CONFIG_MSM_VIDC_720P) += vidc/
-obj-$(CONFIG_FB_MSM_HDMI_MHL_SII9234)  += sii9234/
 clean:
 	rm *.o .*cmd

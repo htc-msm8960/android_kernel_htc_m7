@@ -1,4 +1,4 @@
-/* Copyright (c) 2011, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2011, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -14,8 +14,6 @@
 #ifndef _WRITEBACK_UTIL_H_
 #define _WRITEBACK_UTIL_H_
 
-#include <linux/earlysuspend.h>
-
 #define DEBUG
 
 #ifdef DEBUG
@@ -28,6 +26,3 @@
 	#define WRITEBACK_MSG_ERR(fmt...) pr_err(fmt)
 	#define WRITEBACK_MSG_CRIT(fmt...) pr_crit(fmt)
 #endif
-
-void mdp4_overlay_writeback_early_suspend(struct early_suspend *h);
-void mdp4_overlay_writeback_early_resume(struct early_suspend *h);

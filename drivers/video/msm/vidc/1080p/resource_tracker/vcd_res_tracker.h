@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2010-2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -14,7 +14,7 @@
 #define _VIDEO_720P_RESOURCE_TRACKER_H_
 
 #include <linux/regulator/consumer.h>
-#include <linux/ion.h>
+#include <linux/msm_ion.h>
 #include "vcd_res_tracker_api.h"
 #ifdef CONFIG_MSM_BUS_SCALING
 #include <mach/msm_bus.h>
@@ -60,20 +60,21 @@ struct res_trk_context {
 	u32 sec_clk_heap;
 };
 
-extern u32 vidc_msg_debug;
+#if DEBUG
 
-#define VCDRES_MSG_LOW(xx_fmt...)			\
-	if (vidc_msg_debug) {				\
-		printk(KERN_INFO "\n\t* [VID] " xx_fmt);\
-	}
-#define VCDRES_MSG_MED(xx_fmt...)			\
-	if (vidc_msg_debug) {				\
-		printk(KERN_INFO "\n  * [VID] " xx_fmt);\
-	}
+#define VCDRES_MSG_LOW(xx_fmt...)	printk(KERN_INFO "\n\t* " xx_fmt)
+#define VCDRES_MSG_MED(xx_fmt...)	printk(KERN_INFO "\n  * " xx_fmt)
 
-#define VCDRES_MSG_HIGH(xx_fmt...)	printk(KERN_WARNING "\n [VID] " xx_fmt)
-#define VCDRES_MSG_ERROR(xx_fmt...)	printk(KERN_ERR "\n [VID] err: " xx_fmt)
-#define VCDRES_MSG_FATAL(xx_fmt...)	printk(KERN_ERR "\n [VID] <FATAL> " xx_fmt)
+#else
+
+#define VCDRES_MSG_LOW(xx_fmt...)
+#define VCDRES_MSG_MED(xx_fmt...)
+
+#endif
+
+#define VCDRES_MSG_HIGH(xx_fmt...)	printk(KERN_WARNING "\n" xx_fmt)
+#define VCDRES_MSG_ERROR(xx_fmt...)	printk(KERN_ERR "\n err: " xx_fmt)
+#define VCDRES_MSG_FATAL(xx_fmt...)	printk(KERN_ERR "\n<FATAL> " xx_fmt)
 
 #ifdef CONFIG_MSM_BUS_SCALING
 int res_trk_update_bus_perf_level(struct vcd_dev_ctxt *dev_ctxt,

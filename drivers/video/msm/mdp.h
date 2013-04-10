@@ -1,4 +1,4 @@
-/* Copyright (c) 2008-2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2008-2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -24,7 +24,7 @@
 #include <linux/msm_mdp.h>
 #include <linux/memory_alloc.h>
 #include <mach/hardware.h>
-#include <linux/ion.h>
+#include <linux/msm_ion.h>
 
 #ifdef CONFIG_MSM_BUS_SCALING
 #include <mach/msm_bus.h>
@@ -44,15 +44,10 @@ extern spinlock_t mdp_spin_lock;
 extern int mdp_rev;
 extern int mdp_iommu_split_domain;
 extern struct mdp_csc_cfg mdp_csc_convert[4];
-
+extern struct mdp_csc_cfg_data csc_cfg_matrix[];
 extern struct workqueue_struct *mdp_hist_wq;
 
-extern u32 mdp_ov0_blt_ctl;
-enum {
-	MDP4_BLT_SWITCH_TG_OFF,
-	MDP4_BLT_SWITCH_TG_ON_ISR
-};
-
+extern uint32 mdp_intr_mask;
 
 #define MDP4_REVISION_V1		0
 #define MDP4_REVISION_V2		1
@@ -66,17 +61,17 @@ enum {
 #define BIT(x)  (1<<(x))
 
 #define MDPOP_NOP               0
-#define MDPOP_LR                BIT(0)	
-#define MDPOP_UD                BIT(1)	
-#define MDPOP_ROT90             BIT(2)	
+#define MDPOP_LR                BIT(0)	/* left to right flip */
+#define MDPOP_UD                BIT(1)	/* up and down flip */
+#define MDPOP_ROT90             BIT(2)	/* rotate image to 90 degree */
 #define MDPOP_ROT180            (MDPOP_UD|MDPOP_LR)
 #define MDPOP_ROT270            (MDPOP_ROT90|MDPOP_UD|MDPOP_LR)
 #define MDPOP_ASCALE            BIT(7)
-#define MDPOP_ALPHAB            BIT(8)	
-#define MDPOP_TRANSP            BIT(9)	
-#define MDPOP_DITHER            BIT(10)	
-#define MDPOP_SHARPENING	BIT(11) 
-#define MDPOP_BLUR		BIT(12) 
+#define MDPOP_ALPHAB            BIT(8)	/* enable alpha blending */
+#define MDPOP_TRANSP            BIT(9)	/* enable transparency */
+#define MDPOP_DITHER            BIT(10)	/* enable dither */
+#define MDPOP_SHARPENING	BIT(11) /* enable sharpening */
+#define MDPOP_BLUR		BIT(12) /* enable blur */
 #define MDPOP_FG_PM_ALPHA       BIT(13)
 #define MDP_ALLOC(x)  kmalloc(x, GFP_KERNEL)
 
@@ -95,16 +90,34 @@ struct mdp_table_entry {
 extern struct mdp_ccs mdp_ccs_yuv2rgb ;
 extern struct mdp_ccs mdp_ccs_rgb2yuv ;
 extern unsigned char hdmi_prim_display;
+extern unsigned char hdmi_prim_resolution;
 
+struct vsync {
+	ktime_t vsync_time;
+	struct device *dev;
+	struct work_struct vsync_work;
+	int vsync_irq_enabled;
+	int disabled_clocks;
+	struct completion vsync_wait;
+	atomic_t suspend;
+	atomic_t vsync_resume;
+	int sysfs_created;
+};
+
+extern struct vsync vsync_cntrl;
+
+/*
+ * MDP Image Structure
+ */
 typedef struct mdpImg_ {
-	uint32 imgType;		
-	uint32 *bmy_addr;	
-	uint32 *cbcr_addr;	
-	uint32 width;		
-	uint32 mdpOp;		
-	uint32 tpVal;		
-	uint32 alpha;		
-	int    sp_value;        
+	uint32 imgType;		/* Image type */
+	uint32 *bmy_addr;	/* bitmap or y addr */
+	uint32 *cbcr_addr;	/* cbcr addr */
+	uint32 width;		/* image width */
+	uint32 mdpOp;		/* image opertion (rotation,flip up/down, alpha/tp) */
+	uint32 tpVal;		/* transparency color */
+	uint32 alpha;		/* alpha percentage 0%(0x0) ~ 100%(0x100) */
+	int    sp_value;        /* sharpening strength */
 } MDPIMG;
 
 #define MDP_OUTP(addr, data) outpdw((addr), (data))
@@ -145,6 +158,7 @@ typedef enum {
 	MDP_MAX_BLOCK
 } MDP_BLOCK_TYPE;
 
+/* Let's keep Q Factor power of 2 for optimization */
 #define MDP_SCALE_Q_FACTOR 512
 
 #ifdef CONFIG_FB_MSM_MDP31
@@ -159,11 +173,12 @@ typedef enum {
 #define MDP_MIN_Y_SCALE_FACTOR (MDP_SCALE_Q_FACTOR/4)
 #endif
 
+/* SHIM Q Factor */
 #define PHI_Q_FACTOR          29
-#define PQF_PLUS_5            (PHI_Q_FACTOR + 5)	
+#define PQF_PLUS_5            (PHI_Q_FACTOR + 5)	/* due to 32 phases */
 #define PQF_PLUS_4            (PHI_Q_FACTOR + 4)
-#define PQF_PLUS_2            (PHI_Q_FACTOR + 2)	
-#define PQF_MINUS_2           (PHI_Q_FACTOR - 2)	
+#define PQF_PLUS_2            (PHI_Q_FACTOR + 2)	/* to get 4.0 */
+#define PQF_MINUS_2           (PHI_Q_FACTOR - 2)	/* to get 0.25 */
 #define PQF_PLUS_5_PLUS_2     (PQF_PLUS_5 + 2)
 #define PQF_PLUS_5_MINUS_2    (PQF_PLUS_5 - 2)
 
@@ -172,6 +187,7 @@ typedef enum {
 #define MDPOP_ROTATION (MDPOP_ROT90|MDPOP_LR|MDPOP_UD)
 #define MDP_CHKBIT(val, bit) ((bit) == ((val) & (bit)))
 
+/* overlay interface API defines */
 typedef enum {
 	MORE_IBUF,
 	FINAL_IBUF,
@@ -179,12 +195,15 @@ typedef enum {
 } MDP_IBUF_STATE;
 
 struct mdp_dirty_region {
-	__u32 xoffset;		
-	__u32 yoffset;		
-	__u32 width;		
-	__u32 height;		
+	__u32 xoffset;		/* source origin in the x-axis */
+	__u32 yoffset;		/* source origin in the y-axis */
+	__u32 width;		/* number of pixels in the x-axis */
+	__u32 height;		/* number of pixels in the y-axis */
 };
 
+/*
+ * MDP extended data types
+ */
 typedef struct mdp_roi_s {
 	uint32 x;
 	uint32 y;
@@ -281,7 +300,7 @@ extern struct mdp_hist_mgmt *mdp_hist_mgmt_array[];
 #ifdef CONFIG_FB_MSM_MDP40
 #define MDP_OVERLAY0_TERM 0x20
 #define MDP_OVERLAY1_TERM 0x40
-#define MDP_DMAP_TERM MDP_DMA2_TERM	
+#define MDP_DMAP_TERM MDP_DMA2_TERM	/* dmap == dma2 */
 #define MDP_PRIM_VSYNC_TERM 0x100
 #define MDP_EXTER_VSYNC_TERM 0x200
 #define MDP_PRIM_RDPTR_TERM 0x400
@@ -291,6 +310,7 @@ extern struct mdp_hist_mgmt *mdp_hist_mgmt_array[];
 #define MDP_HISTOGRAM_TERM_DMA_S 0x20000
 #define MDP_HISTOGRAM_TERM_VG_1 0x40000
 #define MDP_HISTOGRAM_TERM_VG_2 0x80000
+#define MDP_VSYNC_TERM 0x1000
 
 #define ACTIVE_START_X_EN BIT(31)
 #define ACTIVE_START_Y_EN BIT(31)
@@ -310,14 +330,19 @@ extern struct mdp_hist_mgmt *mdp_hist_mgmt_array[];
 #define MDP_PPP_DONE 				BIT(0)
 #define TV_OUT_DMA3_DONE    BIT(6)
 #define TV_ENC_UNDERRUN     BIT(7)
+#define MDP_PRIM_RDPTR      BIT(8)
 #define TV_OUT_DMA3_START   BIT(13)
 #define MDP_HIST_DONE       BIT(20)
 
+/*MDP4 MDP histogram interrupts*/
+/*note: these are only applicable on MDP4+ targets*/
 #define INTR_VG1_HISTOGRAM		BIT(5)
 #define INTR_VG2_HISTOGRAM		BIT(6)
 #define INTR_DMA_P_HISTOGRAM		BIT(17)
 #define INTR_DMA_S_HISTOGRAM		BIT(26)
+/*end MDP4 MDP histogram interrupts*/
 
+/* histogram interrupts */
 #define INTR_HIST_DONE			BIT(1)
 #define INTR_HIST_RESET_SEQ_DONE	BIT(0)
 
@@ -352,8 +377,12 @@ extern struct mdp_hist_mgmt *mdp_hist_mgmt_array[];
 #define CLR_CB CLR_B
 #define CLR_CR CLR_R
 
+/* from lsb to msb */
 #define MDP_GET_PACK_PATTERN(a,x,y,z,bit) (((a)<<(bit*3))|((x)<<(bit*2))|((y)<<bit)|(z))
 
+/*
+ * 0x0000 0x0004 0x0008 MDP sync config
+ */
 #ifdef CONFIG_FB_MSM_MDP22
 #define MDP_SYNCFG_HGT_LOC 22
 #define MDP_SYNCFG_VSYNC_EXT_EN BIT(21)
@@ -365,12 +394,22 @@ extern struct mdp_hist_mgmt *mdp_hist_mgmt_array[];
 #define MDP_HW_VSYNC
 #endif
 
+/*
+ * 0x0018 MDP VSYNC THREASH
+ */
 #define MDP_PRIM_BELOW_LOC 0
 #define MDP_PRIM_ABOVE_LOC 8
 
+/*
+ * MDP_PRIMARY_VSYNC_OUT_CTRL
+ * 0x0080,84,88 internal vsync pulse config
+ */
 #define VSYNC_PULSE_EN BIT(31)
 #define VSYNC_PULSE_INV BIT(30)
 
+/*
+ * 0x008c MDP VSYNC CONTROL
+ */
 #define DISP0_VSYNC_MAP_VSYNC0 0
 #define DISP0_VSYNC_MAP_VSYNC1 BIT(0)
 #define DISP0_VSYNC_MAP_VSYNC2 BIT(0)|BIT(1)
@@ -388,12 +427,21 @@ extern struct mdp_hist_mgmt *mdp_hist_mgmt_array[];
 #define EXTERNAL_LCD_SYNC_EN BIT(6)
 #define EXTERNAL_LCD_SYNC_DISABLE 0
 
+/*
+ * 0x101f0 MDP VSYNC Threshold
+ */
 #define VSYNC_THRESHOLD_ABOVE_LOC 0
 #define VSYNC_THRESHOLD_BELOW_LOC 16
 #define VSYNC_ANTI_TEAR_EN BIT(31)
 
+/*
+ * 0x10004 command config
+ */
 #define MDP_CMD_DBGBUS_EN BIT(0)
 
+/*
+ * 0x10124 or 0x101d4PPP source config
+ */
 #define PPP_SRC_C0G_8BITS (BIT(1)|BIT(0))
 #define PPP_SRC_C1B_8BITS (BIT(3)|BIT(2))
 #define PPP_SRC_C2R_8BITS (BIT(5)|BIT(4))
@@ -420,6 +468,12 @@ extern struct mdp_hist_mgmt *mdp_hist_mgmt_array[];
 #define PPP_SRC_INTERLVD_3COMPONENTS BIT(14)
 #define PPP_SRC_INTERLVD_4COMPONENTS (BIT(14)|BIT(13))
 
+/*
+ * RGB666 unpack format
+ * TIGHT means R6+G6+B6 together
+ * LOOSE means R6+2 +G6+2+ B6+2 (with MSB)
+ * or 2+R6 +2+G6 +2+B6 (with LSB)
+ */
 #define PPP_SRC_UNPACK_TIGHT BIT(17)
 #define PPP_SRC_UNPACK_LOOSE 0
 #define PPP_SRC_UNPACK_ALIGN_LSB 0
@@ -428,8 +482,11 @@ extern struct mdp_hist_mgmt *mdp_hist_mgmt_array[];
 #define PPP_SRC_FETCH_PLANES_INTERLVD 0
 #define PPP_SRC_FETCH_PLANES_PSEUDOPLNR BIT(20)
 
-#define PPP_SRC_WMV9_MODE BIT(21)	
+#define PPP_SRC_WMV9_MODE BIT(21)	/* window media version 9 */
 
+/*
+ * 0x10138 PPP operation config
+ */
 #define PPP_OP_SCALE_X_ON BIT(0)
 #define PPP_OP_SCALE_Y_ON BIT(1)
 
@@ -444,6 +501,7 @@ extern struct mdp_hist_mgmt *mdp_hist_mgmt_array[];
 #define PPP_OP_LUT_C1_ON BIT(6)
 #define PPP_OP_LUT_C2_ON BIT(7)
 
+/* rotate or blend enable */
 #define PPP_OP_ROT_ON BIT(8)
 
 #define PPP_OP_ROT_90 BIT(9)
@@ -498,6 +556,9 @@ extern struct mdp_hist_mgmt *mdp_hist_mgmt_array[];
 
 #define PPP_OP_DST_RGB 0
 #define PPP_OP_DST_YCBCR BIT(30)
+/*
+ * 0x10150 PPP destination config
+ */
 #define PPP_DST_C0G_8BIT (BIT(0)|BIT(1))
 #define PPP_DST_C1B_8BIT (BIT(3)|BIT(2))
 #define PPP_DST_C2R_8BIT (BIT(5)|BIT(4))
@@ -541,6 +602,9 @@ extern struct mdp_hist_mgmt *mdp_hist_mgmt_array[];
 #define PPP_DST_MDDI_SECONDARY BIT(21)
 #define PPP_DST_MDDI_EXTERNAL BIT(22)
 
+/*
+ * 0x10180 DMA config
+ */
 #define DMA_DSTC0G_8BITS (BIT(1)|BIT(0))
 #define DMA_DSTC1B_8BITS (BIT(3)|BIT(2))
 #define DMA_DSTC2R_8BITS (BIT(5)|BIT(4))
@@ -556,6 +620,10 @@ extern struct mdp_hist_mgmt *mdp_hist_mgmt_array[];
 #define DMA_PACK_TIGHT                      BIT(6)
 #define DMA_PACK_LOOSE                      0
 #define DMA_PACK_ALIGN_LSB                  0
+/*
+ * use DMA_PACK_ALIGN_MSB if the upper 6 bits from 8 bits output
+ * from LCDC block maps into 6 pins out to the panel
+ */
 #define DMA_PACK_ALIGN_MSB                  BIT(7)
 #define DMA_PACK_PATTERN_RGB \
        (MDP_GET_PACK_PATTERN(0, CLR_R, CLR_G, CLR_B, 2)<<8)
@@ -589,8 +657,8 @@ extern struct mdp_hist_mgmt *mdp_hist_mgmt_array[];
 #define DMA_AHBM_LCD_SEL_SECONDARY          0
 #define DMA_IBUF_C3ALPHA_EN                 0
 #define DMA_BUF_FORMAT_RGB565		BIT(25)
-#define DMA_DITHER_EN                       BIT(24)	
-#define DMA_DEFLKR_EN                       BIT(24)	
+#define DMA_DITHER_EN                       BIT(24)	/* dma_p */
+#define DMA_DEFLKR_EN                       BIT(24)	/* dma_e */
 #define DMA_MDDI_DMAOUT_LCD_SEL_PRIMARY     0
 #define DMA_MDDI_DMAOUT_LCD_SEL_SECONDARY   0
 #define DMA_MDDI_DMAOUT_LCD_SEL_EXTERNAL    0
@@ -598,8 +666,11 @@ extern struct mdp_hist_mgmt *mdp_hist_mgmt_array[];
 #define DMA_IBUF_NONCONTIGUOUS 0
 #endif
 
+/*
+ * MDDI Register
+ */
 #define MDDI_VDO_PACKET_DESC_16  0x5565
-#define MDDI_VDO_PACKET_DESC	 0x5666	
+#define MDDI_VDO_PACKET_DESC	 0x5666	/* 18 bits */
 #define MDDI_VDO_PACKET_DESC_24  0x5888
 
 #define MDP_HIST_INTR_STATUS_OFF	(0x0014)
@@ -765,16 +836,25 @@ int mdp_set_core_clk(u32 rate);
 int mdp_clk_round_rate(u32 rate);
 
 unsigned long mdp_get_core_clk(void);
-unsigned long mdp_perf_level2clk_rate(uint32 perf_level);
 
 #ifdef CONFIG_MSM_BUS_SCALING
-int mdp_bus_scale_update_request(uint32_t index);
+int mdp_bus_scale_update_request(u64 ab, u64 ib);
 #else
-static inline int mdp_bus_scale_update_request(uint32_t index)
+static inline int mdp_bus_scale_update_request(u64 ab,
+					       u64 ib)
 {
 	return 0;
 }
 #endif
+void mdp_dma_vsync_ctrl(int enable);
+void mdp_dma_video_vsync_ctrl(int enable);
+void mdp_dma_lcdc_vsync_ctrl(int enable);
+ssize_t mdp_dma_show_event(struct device *dev,
+		struct device_attribute *attr, char *buf);
+ssize_t mdp_dma_video_show_event(struct device *dev,
+		struct device_attribute *attr, char *buf);
+ssize_t mdp_dma_lcdc_show_event(struct device *dev,
+		struct device_attribute *attr, char *buf);
 
 #ifdef MDP_HW_VSYNC
 void vsync_clk_prepare_enable(void);
@@ -803,16 +883,16 @@ void mdp_footswitch_ctrl(boolean on);
 #ifdef CONFIG_FB_MSM_MDP303
 static inline void mdp4_dsi_cmd_dma_busy_wait(struct msm_fb_data_type *mfd)
 {
-	
+	/* empty */
 }
 
 static inline void mdp4_dsi_blt_dmap_busy_wait(struct msm_fb_data_type *mfd)
 {
-	
+	/* empty */
 }
 static inline void mdp4_overlay_dsi_state_set(int state)
 {
-	
+	/* empty */
 }
 static inline int mdp4_overlay_dsi_state_get(void)
 {
@@ -823,7 +903,12 @@ static inline int mdp4_overlay_dsi_state_get(void)
 #ifndef CONFIG_FB_MSM_MDP40
 static inline void mdp_dsi_cmd_overlay_suspend(struct msm_fb_data_type *mfd)
 {
-	
+	/* empty */
+}
+static inline int msmfb_overlay_vsync_ctrl(struct fb_info *info,
+						void __user *argp)
+{
+	return 0;
 }
 #endif
 
@@ -832,13 +917,37 @@ int mdp_ppp_v4l2_overlay_clear(void);
 int mdp_ppp_v4l2_overlay_play(struct fb_info *info,
 	unsigned long srcp0_addr, unsigned long srcp0_size,
 	unsigned long srcp1_addr, unsigned long srcp1_size);
+void mdp_update_pm(struct msm_fb_data_type *mfd, ktime_t pre_vsync);
+
+u32 mdp_get_panel_framerate(struct msm_fb_data_type *mfd);
 
 #ifdef CONFIG_FB_MSM_DTV
 void mdp_vid_quant_set(void);
 #else
 static inline void mdp_vid_quant_set(void)
 {
-	
+	/* empty */
 }
 #endif
-#endif 
+
+#ifdef CONFIG_UPDATE_LCDC_LUT
+#define R_MASK    0x00ff0000
+#define G_MASK    0x000000ff
+#define B_MASK    0x0000ff00
+#define R_SHIFT   16
+#define G_SHIFT   0
+#define B_SHIFT   8
+#define lut2r(lut) ((lut & R_MASK) >> R_SHIFT)
+#define lut2g(lut) ((lut & G_MASK) >> G_SHIFT)
+#define lut2b(lut) ((lut & B_MASK) >> B_SHIFT)
+
+#ifdef CONFIG_LCD_KCAL
+#define NUM_QLUT  256
+#define MAX_KCAL_V (NUM_QLUT-1)
+#define scaled_by_kcal(rgb, kcal) \
+		(((((unsigned int)(rgb) * (unsigned int)(kcal)) << 16) / \
+		(unsigned int)MAX_KCAL_V) >> 16)
+#endif
+int mdp_preset_lut_update_lcdc(struct fb_cmap *cmap, uint32_t *internal_lut);
+#endif
+#endif /* MDP_H */

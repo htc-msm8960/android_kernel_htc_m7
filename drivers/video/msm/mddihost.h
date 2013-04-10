@@ -1,4 +1,4 @@
-/* Copyright (c) 2008-2009, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2008-2009, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -228,4 +228,4 @@ void mddi_window_adjust(struct msm_fb_data_type *mfd,
 void mddi_send_fw_link_skew_cal(mddi_host_type host_idx);
 int pmdh_clk_func(int enable);
 
-#endif 
+#endif /* MDDIHOST_H */

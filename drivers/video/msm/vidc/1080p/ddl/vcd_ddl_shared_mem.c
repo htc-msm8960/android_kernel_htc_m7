@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2010-2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -45,7 +45,7 @@
 #define VIDC_SM_DISP_PIC_PROFILE_DISP_PIC_PROFILE_SHFT      0
 
 #define VIDC_SM_DISP_PIC_FRAME_TYPE_ADDR                    0x00c0
-#define VIDC_SM_DISP_PIC_FRAME_TYPE_BMSK                    0x00000003
+#define VIDC_SM_DISP_PIC_FRAME_TYPE_BMSK                    0x0000003f
 #define VIDC_SM_DISP_PIC_FRAME_TYPE_SHFT                    0
 
 #define VIDC_SM_FREE_LUMA_DPB_ADDR                          0x00c4
@@ -184,6 +184,7 @@
 #define VIDC_SM_ENC_TIME_SCALE_ADDR                               0x01e0
 #define VIDC_SM_ENC_TIME_SCALE_VALUE_BMSK                         0xffffffff
 #define VIDC_SM_ENC_TIME_SCALE_VALUE_SHFT                         0
+
 
 #define VIDC_SM_ALLOCATED_LUMA_DPB_SIZE_ADDR               0x0064
 #define VIDC_SM_ALLOCATED_CHROMA_DPB_SIZE_ADDR             0x0068
@@ -974,20 +975,12 @@ void vidc_sm_get_aspect_ratio_info(struct ddl_buf_addr *shared_mem,
 		(codec == VCD_CODEC_DIVX_4) ||
 		(codec == VCD_CODEC_DIVX_5) ||
 		(codec == VCD_CODEC_DIVX_6) ||
-		(codec == VCD_CODEC_XVID) ||
-		(codec == VCD_CODEC_MPEG2)) {
+		(codec == VCD_CODEC_XVID)) {
 
-		if (codec == VCD_CODEC_MPEG2) {
-			aspect_ratio_info->aspect_ratio =
-				VIDC_GETFIELD(aspect_ratio,
-				VIDC_SM_MPEG2_ASPECT_RATIO_INFO_BMSK,
-				VIDC_SM_MPEG2_ASPECT_RATIO_INFO_SHFT);
-		} else {
-			aspect_ratio_info->aspect_ratio =
-				VIDC_GETFIELD(aspect_ratio,
-				VIDC_SM_MPEG4_ASPECT_RATIO_INFO_BMSK,
-				VIDC_SM_MPEG4_ASPECT_RATIO_INFO_SHFT);
-		}
+		aspect_ratio_info->aspect_ratio =
+			VIDC_GETFIELD(aspect_ratio,
+			VIDC_SM_MPEG4_ASPECT_RATIO_INFO_BMSK,
+			VIDC_SM_MPEG4_ASPECT_RATIO_INFO_SHFT);
 
 		switch (aspect_ratio_info->aspect_ratio) {
 		case 1:
@@ -1028,7 +1021,38 @@ void vidc_sm_get_aspect_ratio_info(struct ddl_buf_addr *shared_mem,
 			aspect_ratio_info->par_height   = 1;
 			break;
 		}
+	} else if (codec == VCD_CODEC_MPEG2) {
+
+		aspect_ratio_info->aspect_ratio =
+			VIDC_GETFIELD(aspect_ratio,
+			VIDC_SM_MPEG2_ASPECT_RATIO_INFO_BMSK,
+			VIDC_SM_MPEG2_ASPECT_RATIO_INFO_SHFT);
+
+		switch (aspect_ratio_info->aspect_ratio) {
+		case 1:
+			aspect_ratio_info->par_width    = 1;
+			aspect_ratio_info->par_height   = 1;
+			break;
+		case 2:
+			aspect_ratio_info->par_width    = 4;
+			aspect_ratio_info->par_height   = 3;
+			break;
+		case 3:
+			aspect_ratio_info->par_width    = 16;
+			aspect_ratio_info->par_height   = 9;
+			break;
+		case 4:
+			aspect_ratio_info->par_width    = 221;
+			aspect_ratio_info->par_height   = 100;
+			break;
+		default:
+			DDL_MSG_LOW("Incorrect Aspect Ratio.");
+			aspect_ratio_info->par_width    = 1;
+			aspect_ratio_info->par_height   = 1;
+			break;
+		}
 	}
+
 }
 
 void vidc_sm_set_encoder_slice_batch_int_ctrl(struct ddl_buf_addr *shared_mem,

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2010-2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -10,7 +10,7 @@
  * GNU General Public License for more details.
  *
  */
-#include <linux/ion.h>
+#include <linux/msm_ion.h>
 #include <mach/msm_memtypes.h>
 #include "vcd_ddl.h"
 #include "vcd_ddl_shared_mem.h"
@@ -278,7 +278,8 @@ u32 ddl_decoder_dpb_init(struct ddl_client_context *ddl)
 				memset(frame[i].vcd_frm.virtual + luma_size,
 					 0x80808080,
 					frame[i].vcd_frm.alloc_len - luma_size);
-				if (frame[i].vcd_frm.ion_flag == CACHED) {
+				if (frame[i].vcd_frm.ion_flag
+					== ION_FLAG_CACHED) {
 					msm_ion_do_cache_op(
 					ddl_context->video_ion_client,
 					frame[i].vcd_frm.buff_ion_handle,
@@ -811,13 +812,13 @@ u32 ddl_calc_enc_hw_buffers_size(enum vcd_codec codec, u32 width,
 		height, DDL_YUV_BUF_TYPE_TILE);
 	sz_dpb_c = ddl_get_yuv_buf_size(width, height>>1,
 		DDL_YUV_BUF_TYPE_TILE);
-	if (input_format ==
-		VCD_BUFFER_FORMAT_NV12_16M2KA) {
+	if ((input_format == VCD_BUFFER_FORMAT_NV12_16M2KA) ||
+		(input_format == VCD_BUFFER_FORMAT_NV21_16M2KA)) {
 		sz_cur_y = ddl_get_yuv_buf_size(width, height,
 			DDL_YUV_BUF_TYPE_LINEAR);
 		sz_cur_c = ddl_get_yuv_buf_size(width, height>>1,
 			DDL_YUV_BUF_TYPE_LINEAR);
-	} else if (VCD_BUFFER_FORMAT_TILE_4x2 == input_format) {
+	} else if (input_format == VCD_BUFFER_FORMAT_TILE_4x2) {
 		sz_cur_y = sz_dpb_y;
 		sz_cur_c = sz_dpb_c;
 	} else

@@ -1,4 +1,4 @@
-/* Copyright (c) 2011, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2011, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -22,8 +22,6 @@
 #include "mdp4_wfd_writeback_util.h"
 #include "msm_fb.h"
 
-static struct early_suspend writeback_suspend;
-
 static int __devinit writeback_panel_probe(struct platform_device *pdev)
 {
 	int rc = 0;
@@ -39,14 +37,13 @@ static int __devinit writeback_panel_probe(struct platform_device *pdev)
 static struct msm_fb_panel_data writeback_msm_panel_data = {
 	.panel_info = {
 		.type = WRITEBACK_PANEL,
-		.xres = 1920,
-		.yres = 1920,
+		.xres = 1280,
+		.yres = 720,
 		.pdest = DISPLAY_3,
 		.wait_cycle = 0,
 		.bpp = 24,
 		.fb_num = 1,
-		
-		.clk_rate = 177780000,
+		.clk_rate = 74250000,
 	},
 };
 
@@ -76,11 +73,6 @@ static int __init writeback_panel_init(void)
 				"writeback_panel_device\n");
 		goto fail_device_registration;
 	}
-
-	writeback_suspend.level = 0;
-	writeback_suspend.suspend = mdp4_overlay_writeback_early_suspend;
-	writeback_suspend.resume = mdp4_overlay_writeback_early_resume;
-	register_early_suspend(&writeback_suspend);
 	return rc;
 fail_device_registration:
 	platform_driver_unregister(&writeback_panel_driver);
@@ -88,4 +80,4 @@ fail_driver_registration:
 	return rc;
 }
 
-late_initcall(writeback_panel_init);
+module_init(writeback_panel_init);

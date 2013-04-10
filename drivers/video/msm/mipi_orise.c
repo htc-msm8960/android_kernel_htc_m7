@@ -1,4 +1,4 @@
-/* Copyright (c) 2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -22,10 +22,10 @@ static struct mipi_dsi_panel_platform_data *mipi_orise_pdata;
 static struct dsi_buf orise_tx_buf;
 static struct dsi_buf orise_rx_buf;
 
-static char enter_sleep[2] = {0x10, 0x00}; 
-static char exit_sleep[2] = {0x11, 0x00}; 
-static char display_off[2] = {0x28, 0x00}; 
-static char display_on[2] = {0x29, 0x00}; 
+static char enter_sleep[2] = {0x10, 0x00}; /* DTYPE_DCS_WRITE */
+static char exit_sleep[2] = {0x11, 0x00}; /* DTYPE_DCS_WRITE */
+static char display_off[2] = {0x28, 0x00}; /* DTYPE_DCS_WRITE */
+static char display_on[2] = {0x29, 0x00}; /* DTYPE_DCS_WRITE */
 
 static struct dsi_cmd_desc orise_video_on_cmds[] = {
 	{DTYPE_DCS_WRITE, 1, 0, 0, 10,
@@ -70,7 +70,7 @@ static int mipi_orise_lcd_on(struct platform_device *pdev)
 		mipi_dsi_cmds_tx(&orise_tx_buf, orise_cmd_on_cmds,
 			ARRAY_SIZE(orise_cmd_on_cmds));
 
-		mipi_dsi_cmd_bta_sw_trigger(); 
+		mipi_dsi_cmd_bta_sw_trigger(); /* clean up ack_err_status */
 	}
 
 	return 0;

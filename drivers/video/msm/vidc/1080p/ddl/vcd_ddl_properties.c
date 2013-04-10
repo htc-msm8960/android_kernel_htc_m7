@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2010-2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -836,8 +836,10 @@ static u32 ddl_set_enc_property(struct ddl_client_context *ddl,
 			property_hdr->sz &&
 			((buffer_format->buffer_format ==
 			VCD_BUFFER_FORMAT_NV12_16M2KA) ||
-			(VCD_BUFFER_FORMAT_TILE_4x2 ==
-			buffer_format->buffer_format))) {
+			(buffer_format->buffer_format ==
+			VCD_BUFFER_FORMAT_TILE_4x2) ||
+			(buffer_format->buffer_format ==
+			VCD_BUFFER_FORMAT_NV21_16M2KA))) {
 			if (buffer_format->buffer_format !=
 				encoder->buf_format.buffer_format) {
 				encoder->buf_format = *buffer_format;
@@ -1047,11 +1049,6 @@ static u32 ddl_set_enc_property(struct ddl_client_context *ddl,
 	case VCD_REQ_PERF_LEVEL:
 		vcd_status = VCD_S_SUCCESS;
 		break;
-    case VCD_I_SET_TURBO_CLK:
-    {
-        vcd_status = VCD_S_SUCCESS;
-        break;
-    }
 	case VCD_I_ENABLE_DELIMITER_FLAG:
 	{
 		struct vcd_property_avc_delimiter_enable *delimiter_enable =
@@ -1811,7 +1808,7 @@ static void ddl_set_default_enc_rc_params(
 	encoder->rc_level.frame_level_rc = true;
 	encoder->qp_range.min_qp = 0x1;
 	if (codec == VCD_CODEC_H264) {
-		encoder->qp_range.min_qp = 0x4;
+		encoder->qp_range.min_qp = 0x1;
 		encoder->qp_range.max_qp = 0x33;
 		encoder->session_qp.i_frame_qp = 0x14;
 		encoder->session_qp.p_frame_qp = 0x14;
@@ -1880,12 +1877,14 @@ void ddl_set_default_encoder_buffer_req(struct ddl_encoder_data *encoder)
 		encoder->input_buf_req.min_count;
 	encoder->input_buf_req.max_count    = DDL_MAX_BUFFER_COUNT;
 	encoder->input_buf_req.sz = y_cb_cr_size;
-	if (encoder->buf_format.buffer_format ==
-		VCD_BUFFER_FORMAT_NV12_16M2KA)
+	if ((encoder->buf_format.buffer_format ==
+		VCD_BUFFER_FORMAT_NV12_16M2KA) ||
+		(encoder->buf_format.buffer_format ==
+		VCD_BUFFER_FORMAT_NV21_16M2KA))
 		encoder->input_buf_req.align =
 			DDL_LINEAR_BUFFER_ALIGN_BYTES;
-	else if (VCD_BUFFER_FORMAT_TILE_4x2 ==
-		encoder->buf_format.buffer_format)
+	else if (encoder->buf_format.buffer_format ==
+		VCD_BUFFER_FORMAT_TILE_4x2)
 		encoder->input_buf_req.align = DDL_TILE_BUFFER_ALIGN_BYTES;
 	encoder->client_input_buf_req = encoder->input_buf_req;
 	memset(&encoder->output_buf_req , 0 ,
@@ -2046,7 +2045,7 @@ static u32 ddl_valid_buffer_requirement(struct vcd_buffer_requirement
 		req_buf_req->actual_count &&
 		!((original_buf_req->align - (u32)0x1) &
 		req_buf_req->align) &&
-		
+		/*original_buf_req->align <= req_buf_req->align,*/
 		original_buf_req->sz <= req_buf_req->sz)
 		status = true;
 	else {
