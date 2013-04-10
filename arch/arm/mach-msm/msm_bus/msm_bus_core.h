@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2011-2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -36,7 +36,7 @@
 	(((slv >= MSM_BUS_SLAVE_FIRST) && (slv <= MSM_BUS_SLAVE_LAST)) ? 1 : 0)
 
 #define INTERLEAVED_BW(fab_pdata, bw, ports) \
-	((fab_pdata->il_flag) ? DIV_ROUND_UP((bw), (ports)) : (bw))
+	((fab_pdata->il_flag) ? msm_bus_div64((bw), (ports)) : (bw))
 #define INTERLEAVED_VAL(fab_pdata, n) \
 	((fab_pdata->il_flag) ? (n) : 1)
 
@@ -83,34 +83,34 @@ struct msm_bus_node_info {
 };
 
 struct path_node {
-	unsigned long clk[NUM_CTX];
-	unsigned long bw[NUM_CTX];
-	unsigned long *sel_clk;
-	unsigned long *sel_bw;
+	uint64_t clk[NUM_CTX];
+	uint64_t bw[NUM_CTX];
+	uint64_t *sel_clk;
+	uint64_t *sel_bw;
 	int next;
 };
 
 struct msm_bus_link_info {
-	unsigned long clk[NUM_CTX];
-	unsigned long *sel_clk;
-	unsigned long memclk;
-	long bw[NUM_CTX];
-	long *sel_bw;
+	uint64_t clk[NUM_CTX];
+	uint64_t *sel_clk;
+	uint64_t memclk;
+	int64_t bw[NUM_CTX];
+	int64_t *sel_bw;
 	int *tier;
 	int num_tiers;
 };
 
 struct nodeclk {
 	struct clk *clk;
-	unsigned long rate;
+	uint64_t rate;
 	bool dirty;
 	bool enable;
 };
 
 struct msm_bus_inode_info {
 	struct msm_bus_node_info *node_info;
-	unsigned long max_bw;
-	unsigned long max_clk;
+	uint64_t max_bw;
+	uint64_t max_clk;
 	struct msm_bus_link_info link_info;
 	int num_pnodes;
 	struct path_node *pnode;
@@ -123,7 +123,7 @@ struct msm_bus_inode_info {
 struct msm_bus_node_hw_info {
 	bool dirty;
 	unsigned int hw_id;
-	unsigned long bw;
+	uint64_t bw;
 };
 
 struct msm_bus_hw_algorithm {
@@ -137,7 +137,7 @@ struct msm_bus_hw_algorithm {
 		struct msm_bus_inode_info *info,
 		struct msm_bus_fabric_registration *fab_pdata,
 		void *sel_cdata, int *master_tiers,
-		long int add_bw);
+		int64_t add_bw);
 	void (*fill_cdata_buffer)(int *curr, char *buf, const int max_size,
 		void *cdata, int nmasters, int nslaves, int ntslaves);
 	int (*commit)(struct msm_bus_fabric_registration
@@ -162,8 +162,8 @@ struct msm_bus_fabric_device {
 struct msm_bus_fab_algorithm {
 	int (*update_clks)(struct msm_bus_fabric_device *fabdev,
 		struct msm_bus_inode_info *pme, int index,
-		unsigned long curr_clk, unsigned long req_clk,
-		unsigned long bwsum, int flag, int ctx,
+		uint64_t curr_clk, uint64_t req_clk,
+		uint64_t bwsum, int flag, int ctx,
 		unsigned int cl_active_flag);
 	int (*port_halt)(struct msm_bus_fabric_device *fabdev, int portid);
 	int (*port_unhalt)(struct msm_bus_fabric_device *fabdev, int portid);
@@ -175,7 +175,7 @@ struct msm_bus_fab_algorithm {
 	struct list_head *(*get_gw_list)(struct msm_bus_fabric_device *fabdev);
 	void (*update_bw)(struct msm_bus_fabric_device *fabdev, struct
 		msm_bus_inode_info * hop, struct msm_bus_inode_info *info,
-		long int add_bw, int *master_tiers, int ctx);
+		int64_t add_bw, int *master_tiers, int ctx);
 };
 
 struct msm_bus_board_algorithm {
@@ -185,6 +185,11 @@ struct msm_bus_board_algorithm {
 	int (*get_iid)(int id);
 };
 
+/**
+ * Used to store the list of fabrics and other info to be
+ * maintained outside the fabric structure.
+ * Used while calculating path, and to find fabric ptrs
+ */
 struct msm_bus_fabnodeinfo {
 	struct list_head list;
 	struct msm_bus_inode_info *info;
@@ -197,6 +202,9 @@ struct msm_bus_client {
 	int curr;
 };
 
+uint64_t msm_bus_div64(unsigned int width, uint64_t bw);
+int msm_bus_remote_hw_commit(struct msm_bus_fabric_registration
+	*fab_pdata, void *hw_data, void **cdata);
 int msm_bus_fabric_device_register(struct msm_bus_fabric_device *fabric);
 void msm_bus_fabric_device_unregister(struct msm_bus_fabric_device *fabric);
 struct msm_bus_fabric_device *msm_bus_get_fabric_device(int fabid);
@@ -230,4 +238,4 @@ static inline void msm_bus_dbg_commit_data(const char *fabname,
 }
 #endif
 
-#endif 
+#endif /*_ARCH_ARM_MACH_MSM_BUS_CORE_H*/

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2010-2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -26,10 +26,10 @@
 #include <mach/iommu.h>
 
 struct iommu_ctx_iter_data {
-	
+	/* input */
 	const char *name;
 
-	
+	/* output */
 	struct device *dev;
 };
 
@@ -331,7 +331,7 @@ static int msm_iommu_ctx_probe(struct platform_device *pdev)
 		}
 	}
 
-	
+	/* Program the M2V tables for this context */
 	for (i = 0; i < MAX_NUM_MIDS; i++) {
 		int mid = c->mids[i];
 		if (mid == -1)
@@ -340,22 +340,22 @@ static int msm_iommu_ctx_probe(struct platform_device *pdev)
 		SET_M2VCBR_N(drvdata->base, mid, 0);
 		SET_CBACR_N(drvdata->base, c->num, 0);
 
-		
+		/* Route page faults to the non-secure interrupt */
 		SET_IRPTNDX(drvdata->base, c->num, 1);
 
-		
+		/* Set VMID = 0 */
 		SET_VMID(drvdata->base, mid, 0);
 
-		
+		/* Set the context number for that MID to this context */
 		SET_CBNDX(drvdata->base, mid, c->num);
 
-		
+		/* Set MID associated with this context bank to 0 */
 		SET_CBVMID(drvdata->base, c->num, 0);
 
-		
+		/* Set the ASID for TLB tagging for this context to 0 */
 		SET_CONTEXTIDR_ASID(drvdata->base, c->num, 0);
 
-		
+		/* Set security bit override to be Non-secure */
 		SET_NSCFG(drvdata->base, mid, 3);
 	}
 	mb();

@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2011-2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -548,7 +548,7 @@ static struct msm_bus_node_info mmss_fabric_info[]  = {
 		.tier = tier2,
 		.num_tiers = ARRAY_SIZE(tier2),
 	},
-	
+	/* This port has been added for V2. It is absent in V1 */
 	{
 		.id = MSM_BUS_MASTER_VIDEO_DEC,
 		.masterp = mport_video_dec,

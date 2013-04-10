@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2011-2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -32,8 +32,9 @@
 #define SEL_FAB_CLK 1
 #define SEL_SLAVE_CLK 0
 
-#define BW_TO_CLK_FREQ_HZ(width, bw) ((unsigned long)\
-	DIV_ROUND_UP((bw), (width)))
+#define BW_TO_CLK_FREQ_HZ(width, bw) \
+	msm_bus_div64(width, bw)
+
 #define IS_MASTER_VALID(mas) \
 	(((mas >= MSM_BUS_MASTER_FIRST) && (mas <= MSM_BUS_MASTER_LAST)) \
 	 ? 1 : 0)
@@ -43,6 +44,45 @@
 
 static DEFINE_MUTEX(msm_bus_lock);
 
+/* This function uses shift operations to divide 64 bit value for higher
+ * efficiency. The divisor expected are number of ports or bus-width.
+ * These are expected to be 1, 2, 4, 8, 16 and 32 in most cases.
+ *
+ * To account for exception to the above divisor values, the standard
+ * do_div function is used.
+ * */
+uint64_t msm_bus_div64(unsigned int w, uint64_t bw)
+{
+	uint64_t *b = &bw;
+
+	if ((bw > 0) && (bw < w))
+		return 1;
+
+	switch (w) {
+	case 1: return bw;
+	case 2:	return (bw >> 1);
+	case 4:	return (bw >> 2);
+	case 8:	return (bw >> 3);
+	case 16: return (bw >> 4);
+	case 32: return (bw >> 5);
+	}
+
+	do_div(*b, w);
+	return *b;
+}
+
+/**
+ * add_path_node: Adds the path information to the current node
+ * @info: Internal node info structure
+ * @next: Combination of the id and index of the next node
+ * Function returns: Number of pnodes (path_nodes) on success,
+ * error on failure.
+ *
+ * Every node maintains the list of path nodes. A path node is
+ * reached by finding the node-id and index stored at the current
+ * node. This makes updating the paths with requested bw and clock
+ * values efficient, as it avoids lookup for each update-path request.
+ */
 static int add_path_node(struct msm_bus_inode_info *info, int next)
 {
 	struct path_node *pnode;
@@ -96,6 +136,21 @@ static int clearvisitedflag(struct device *dev, void *data)
 	return 0;
 }
 
+/**
+ * getpath() - Finds the path from the topology between src and dest
+ * @src: Source. This is the master from which the request originates
+ * @dest: Destination. This is the slave to which we're trying to reach
+ *
+ * Function returns: next_pnode_id. The higher 16 bits of the next_pnode_id
+ * represent the src id of the  next node on path. The lower 16 bits of the
+ * next_pnode_id represent the "index", which is the next entry in the array
+ * of pnodes for that node to fill in clk and bw values. This is created using
+ * CREATE_PNODE_ID. The return value is stored in ret_pnode, and this is added
+ * to the list of path nodes.
+ *
+ * This function recursively finds the path by updating the src to the
+ * closest possible node to dest.
+ */
 static int getpath(int src, int dest)
 {
 	int pnode_num = -1, i;
@@ -108,7 +163,7 @@ static int getpath(int src, int dest)
 	int ret_pnode = -1;
 	int fabid = GET_FABID(src);
 
-	
+	/* Find the location of fabric for the src */
 	MSM_BUS_DBG("%d --> %d\n", src, dest);
 
 	fabdev = msm_bus_get_fabric_device(fabid);
@@ -117,7 +172,7 @@ static int getpath(int src, int dest)
 		return -ENXIO;
 	}
 
-	
+	/* Are we there yet? */
 	if (src == dest) {
 		info = fabdev->algo->find_node(fabdev, src);
 		if (ZERO_OR_NULL_PTR(info)) {
@@ -149,6 +204,10 @@ static int getpath(int src, int dest)
 			GET_INDEX(next_pnode_id));
 		return next_pnode_id;
 	} else if (_src == _dst) {
+		/*
+		 * src and dest belong to same fabric, find the destination
+		 * from the radix tree
+		 */
 		info = fabdev->algo->find_node(fabdev, dest);
 		if (ZERO_OR_NULL_PTR(info)) {
 			MSM_BUS_ERR("Node %d not found\n", dest);
@@ -158,14 +217,14 @@ static int getpath(int src, int dest)
 		ret_pnode = getpath(info->node_info->priv_id, dest);
 		next_pnode_id = ret_pnode;
 	} else {
-		
+		/* find the dest fabric */
 		int trynextgw = true;
 		struct list_head *gateways = fabdev->algo->get_gw_list(fabdev);
 		list_for_each_entry(fabnodeinfo, gateways, list) {
-		
+		/* see if the destination is at a connected fabric */
 			if (_dst == (fabnodeinfo->info->node_info->priv_id /
 				FABRIC_ID_KEY)) {
-				
+				/* Found the fab on which the device exists */
 				info = fabnodeinfo->info;
 				trynextgw = false;
 				ret_pnode = getpath(info->node_info->priv_id,
@@ -181,7 +240,7 @@ static int getpath(int src, int dest)
 			}
 		}
 
-		
+		/* find the gateway */
 		if (trynextgw) {
 			gateways = fabdev->algo->get_gw_list(fabdev);
 			list_for_each_entry(fabnodeinfo, gateways, list) {
@@ -231,21 +290,37 @@ static int getpath(int src, int dest)
 	return CREATE_PNODE_ID(src, pnode_num);
 }
 
-static int update_path(int curr, int pnode, unsigned long req_clk, unsigned
-	long req_bw, unsigned long curr_clk, unsigned long curr_bw,
-	unsigned int ctx, unsigned int cl_active_flag)
+/**
+ * update_path() - Update the path with the bandwidth and clock values, as
+ * requested by the client.
+ *
+ * @curr: Current source node, as specified in the client vector (master)
+ * @pnode: The first-hop node on the path, stored in the internal client struct
+ * @req_clk: Requested clock value from the vector
+ * @req_bw: Requested bandwidth value from the vector
+ * @curr_clk: Current clock frequency
+ * @curr_bw: Currently allocated bandwidth
+ *
+ * This function updates the nodes on the path calculated using getpath(), with
+ * clock and bandwidth values. The sum of bandwidths, and the max of clock
+ * frequencies is calculated at each node on the path. Commit data to be sent
+ * to RPM for each master and slave is also calculated here.
+ */
+static int update_path(int curr, int pnode, uint64_t req_clk, uint64_t req_bw,
+	uint64_t curr_clk, uint64_t curr_bw, unsigned int ctx, unsigned int
+	cl_active_flag)
 {
 	int index, ret = 0;
 	struct msm_bus_inode_info *info;
 	int next_pnode;
-	long int add_bw = req_bw - curr_bw;
+	int64_t add_bw = req_bw - curr_bw;
 	unsigned bwsum = 0;
-	unsigned req_clk_hz, curr_clk_hz, bwsum_hz;
+	uint64_t req_clk_hz, curr_clk_hz, bwsum_hz;
 	int *master_tiers;
 	struct msm_bus_fabric_device *fabdev = msm_bus_get_fabric_device
 		(GET_FABID(curr));
 
-	MSM_BUS_DBG("args: %d %d %d %lu %lu %lu %lu %u\n",
+	MSM_BUS_DBG("args: %d %d %d %llu %llu %llu %llu %u\n",
 		curr, GET_NODE(pnode), GET_INDEX(pnode), req_clk, req_bw,
 		curr_clk, curr_bw, ctx);
 	index = GET_INDEX(pnode);
@@ -262,6 +337,10 @@ static int update_path(int curr, int pnode, unsigned long req_clk, unsigned
 
 	info->pnode[index].sel_bw = &info->pnode[index].bw[ctx];
 
+	/**
+	 * To select the right clock, AND the context with
+	 * client active flag.
+	 */
 	info->pnode[index].sel_clk = &info->pnode[index].clk[ctx &
 		cl_active_flag];
 	*info->pnode[index].sel_bw += add_bw;
@@ -279,14 +358,16 @@ static int update_path(int curr, int pnode, unsigned long req_clk, unsigned
 		}
 		MSM_BUS_DBG("id: %d\n", info->node_info->priv_id);
 
-		
+		/* find next node and index */
 		next_pnode = info->pnode[index].next;
 		curr = GET_NODE(next_pnode);
 		index = GET_INDEX(next_pnode);
 		MSM_BUS_DBG("id:%d, next: %d\n", info->
 		    node_info->priv_id, curr);
 
-		
+		/* Get hop */
+		/* check if we are here as gateway, or does the hop belong to
+		 * this fabric */
 		if (IS_NODE(curr))
 			hop = fabdev->algo->find_node(fabdev, curr);
 		else
@@ -314,19 +395,19 @@ static int update_path(int curr, int pnode, unsigned long req_clk, unsigned
 		MSM_BUS_DBG("fabric: %d slave: %d, slave-width: %d info: %d\n",
 			fabdev->id, hop->node_info->priv_id, hop->node_info->
 			buswidth, info->node_info->priv_id);
-		
+		/* Update Bandwidth */
 		fabdev->algo->update_bw(fabdev, hop, info, add_bw,
 			master_tiers, ctx);
 		bwsum = (uint16_t)*hop->link_info.sel_bw;
-		
+		/* Update Fabric clocks */
 		curr_clk_hz = BW_TO_CLK_FREQ_HZ(hop->node_info->buswidth,
 			curr_clk);
 		req_clk_hz = BW_TO_CLK_FREQ_HZ(hop->node_info->buswidth,
 			req_clk);
 		bwsum_hz = BW_TO_CLK_FREQ_HZ(hop->node_info->buswidth,
 			bwsum);
-		MSM_BUS_DBG("Calling update-clks: curr_hz: %lu, req_hz: %lu,"
-			" bw_hz %u\n", curr_clk, req_clk, bwsum_hz);
+		MSM_BUS_DBG("up-clk: curr_hz: %llu, req_hz: %llu, bw_hz %llu\n",
+			curr_clk, req_clk, bwsum_hz);
 		ret = fabdev->algo->update_clks(fabdev, hop, index,
 			curr_clk_hz, req_clk_hz, bwsum_hz, SEL_FAB_CLK,
 			ctx, cl_active_flag);
@@ -335,12 +416,12 @@ static int update_path(int curr, int pnode, unsigned long req_clk, unsigned
 		info = hop;
 	} while (GET_NODE(info->pnode[index].next) != info->node_info->priv_id);
 
-	
+	/* Update BW, clk after exiting the loop for the last one */
 	if (!info) {
 		MSM_BUS_ERR("Cannot find node info!\n");
 		return -ENXIO;
 	}
-	
+	/* Update slave clocks */
 	ret = fabdev->algo->update_clks(fabdev, info, index, curr_clk_hz,
 	    req_clk_hz, bwsum_hz, SEL_SLAVE_CLK, ctx, cl_active_flag);
 	if (ret)
@@ -348,6 +429,11 @@ static int update_path(int curr, int pnode, unsigned long req_clk, unsigned
 	return ret;
 }
 
+/**
+ * msm_bus_commit_fn() - Commits the data for fabric to rpm
+ * @dev: fabric device
+ * @data: NULL
+ */
 static int msm_bus_commit_fn(struct device *dev, void *data)
 {
 	int ret = 0;
@@ -357,6 +443,15 @@ static int msm_bus_commit_fn(struct device *dev, void *data)
 	return ret;
 }
 
+/**
+ * msm_bus_scale_register_client() - Register the clients with the msm bus
+ * driver
+ * @pdata: Platform data of the client, containing src, dest, ab, ib
+ *
+ * Client data contains the vectors specifying arbitrated bandwidth (ab)
+ * and instantaneous bandwidth (ib) requested between a particular
+ * src and dest.
+ */
 uint32_t msm_bus_scale_register_client(struct msm_bus_scale_pdata *pdata)
 {
 	struct msm_bus_client *client = NULL;
@@ -452,12 +547,20 @@ err:
 }
 EXPORT_SYMBOL(msm_bus_scale_register_client);
 
+/**
+ * msm_bus_scale_client_update_request() - Update the request for bandwidth
+ * from a particular client
+ *
+ * cl: Handle to the client
+ * index: Index into the vector, to which the bw and clock values need to be
+ * updated
+ */
 int msm_bus_scale_client_update_request(uint32_t cl, unsigned index)
 {
 	int i, ret = 0;
 	struct msm_bus_scale_pdata *pdata;
 	int pnode, src, curr, ctx;
-	unsigned long req_clk, req_bw, curr_clk, curr_bw;
+	uint64_t req_clk, req_bw, curr_clk, curr_bw;
 	struct msm_bus_client *client = (struct msm_bus_client *)cl;
 	if (IS_ERR(client)) {
 		MSM_BUS_ERR("msm_bus_scale_client update req error %d\n",
@@ -479,9 +582,8 @@ int msm_bus_scale_client_update_request(uint32_t cl, unsigned index)
 		goto err;
 	}
 
-	MSM_BUS_DBG("cl: %u index: %d curr: %d"
-			" num_paths: %d\n", cl, index, client->curr,
-			client->pdata->usecase->num_paths);
+	MSM_BUS_DBG("cl: %u index: %d curr: %d num_paths: %d\n",
+		cl, index, client->curr, client->pdata->usecase->num_paths);
 
 	for (i = 0; i < pdata->usecase->num_paths; i++) {
 		src = msm_bus_board_get_iid(client->pdata->usecase[index].
@@ -509,7 +611,7 @@ int msm_bus_scale_client_update_request(uint32_t cl, unsigned index)
 		} else {
 			curr_clk = client->pdata->usecase[curr].vectors[i].ib;
 			curr_bw = client->pdata->usecase[curr].vectors[i].ab;
-			MSM_BUS_DBG("ab: %lu ib: %lu\n", curr_bw, curr_clk);
+			MSM_BUS_DBG("ab: %llu ib: %llu\n", curr_bw, curr_clk);
 		}
 
 		if (!pdata->active_only) {
@@ -621,6 +723,10 @@ void msm_bus_scale_client_reset_pnodes(uint32_t cl)
 	}
 }
 
+/**
+ * msm_bus_scale_unregister_client() - Unregister the client from the bus driver
+ * @cl: Handle to the client
+ */
 void msm_bus_scale_unregister_client(uint32_t cl)
 {
 	struct msm_bus_client *client = (struct msm_bus_client *)(cl);

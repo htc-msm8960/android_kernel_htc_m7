@@ -1,4 +1,4 @@
-/* Copyright (c) 2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -91,17 +91,17 @@ struct msm_bus_bimc_qos_mode {
 };
 
 struct msm_bus_bimc_qos_bw {
-	uint64_t bw;	
-	uint32_t ws;	
-	uint64_t thh;	
-	uint64_t thm;	
-	uint64_t thl;	
+	uint64_t bw;	/* bw is in Bytes/sec */
+	uint32_t ws;	/* Window size in nano seconds*/
+	uint64_t thh;	/* Threshold high, bytes per second */
+	uint64_t thm;	/* Threshold medium, bytes per second */
+	uint64_t thl;	/* Threshold low, bytes per second */
 };
 
 struct msm_bus_bimc_clk_gate {
 	bool core_clk_gate_en;
-	bool arb_clk_gate_en;	
-	bool port_clk_gate_en;	
+	bool arb_clk_gate_en;	/* For arbiter */
+	bool port_clk_gate_en;	/* For regs on BIMC core clock */
 };
 
 void msm_bus_bimc_set_slave_seg(struct msm_bus_bimc_info *binfo,
@@ -122,4 +122,4 @@ void msm_bus_bimc_get_slv_params(struct msm_bus_bimc_info *binfo,
 bool msm_bus_bimc_get_arb_en(struct msm_bus_bimc_info *binfo,
 	uint32_t slv_index);
 
-#endif 
+#endif /*_ARCH_ARM_MACH_MSM_BUS_BIMC_H*/

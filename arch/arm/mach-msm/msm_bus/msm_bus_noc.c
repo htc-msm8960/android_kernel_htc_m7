@@ -1,4 +1,4 @@
-/* Copyright (c) 2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -18,9 +18,10 @@
 #include "msm_bus_core.h"
 #include "msm_bus_noc.h"
 
+/* NOC_QOS generic */
 #define __CLZ(x) ((8 * sizeof(uint32_t)) - 1 - __fls(x))
-#define SAT_SCALE 16	
-#define BW_SCALE  256	
+#define SAT_SCALE 16	/* 16 bytes minimum for saturation */
+#define BW_SCALE  256	/* 1/256 byte per cycle unit */
 #define MAX_BW_FIELD (NOC_QOS_BWn_BW_BMSK >> NOC_QOS_BWn_BW_SHFT)
 #define MAX_SAT_FIELD (NOC_QOS_SATn_SAT_BMSK >> NOC_QOS_SATn_SAT_SHFT)
 
@@ -76,6 +77,7 @@ enum noc_qos_id_bwn {
 	NOC_QOS_BWn_BW_SHFT		= 0x0,
 };
 
+/* QOS Saturation registers */
 #define NOC_QOS_SATn_ADDR(b, n) \
 	(NOC_QOS_REG_BASE(b) + 0x14 + 0x80 * (n))
 enum noc_qos_id_saturationn {
@@ -93,6 +95,10 @@ static int noc_div(uint64_t *a, uint32_t b)
 		return do_div(*a, b);
 }
 
+/**
+ * Calculates bw hardware is using from register values
+ * bw returned is in bytes/sec
+ */
 static uint64_t noc_bw(uint32_t bw_field, uint32_t qos_freq)
 {
 	uint64_t res;
@@ -114,6 +120,10 @@ static uint32_t noc_bw_ceil(long int bw_field, uint32_t qos_freq)
 }
 #define MAX_BW(timebase) noc_bw_ceil(MAX_BW_FIELD, (timebase))
 
+/**
+ * Calculates ws hardware is using from register values
+ * ws returned is in nanoseconds
+ */
 static uint32_t noc_ws(uint64_t bw, uint32_t sat, uint32_t qos_freq)
 {
 	if (bw && qos_freq) {
@@ -129,6 +139,7 @@ static uint32_t noc_ws(uint64_t bw, uint32_t sat, uint32_t qos_freq)
 }
 #define MAX_WS(bw, timebase) noc_ws((bw), MAX_SAT_FIELD, (timebase))
 
+/* Calculate bandwidth field value for requested bandwidth  */
 static uint32_t noc_bw_field(uint64_t bw, uint32_t qos_freq)
 {
 	uint32_t bw_field = 0;
@@ -152,11 +163,20 @@ static uint32_t noc_sat_field(uint64_t bw, uint32_t ws, uint32_t qos_freq)
 	uint32_t sat_field = 0, win;
 
 	if (bw) {
-		
+		/* Limit to max bw and scale bw to 100 KB increments */
 		uint64_t tbw, tscale;
 		uint64_t bw_scaled = min_t(uint64_t, bw, MAX_BW(qos_freq));
 		uint32_t rem = noc_div(&bw_scaled, 100000);
 
+		/**
+		 * Calculate saturation from windows size.
+		 * WS must be at least one arb period.
+		 * Saturation must not exceed max field size
+		 *
+		 * Bandwidth is in 100KB increments
+		 * Window size is in ns
+		 * qos_freq is in KHz
+		 */
 		win = max(ws, 1000000 / qos_freq);
 		tbw = bw_scaled * win * qos_freq;
 		tscale = 10000000ULL * BW_SCALE * SAT_SCALE;
@@ -169,10 +189,10 @@ static uint32_t noc_sat_field(uint64_t bw, uint32_t ws, uint32_t qos_freq)
 }
 
 static void noc_set_qos_mode(struct msm_bus_noc_info *ninfo, uint32_t mport,
-	uint8_t mode)
+	uint8_t mode, uint8_t perm_mode)
 {
 	if (mode < NOC_QOS_MODE_MAX &&
-		((1 << mode) & ninfo->mas_modes[mport])) {
+		((1 << mode) & perm_mode)) {
 		uint32_t reg_val;
 
 		reg_val = readl_relaxed(NOC_QOS_MODEn_ADDR(ninfo->base,
@@ -181,7 +201,7 @@ static void noc_set_qos_mode(struct msm_bus_noc_info *ninfo, uint32_t mport,
 			(mode & NOC_QOS_MODEn_MODE_BMSK)),
 			NOC_QOS_MODEn_ADDR(ninfo->base, mport));
 	}
-	
+	/* Ensure qos mode is set before exiting */
 	wmb();
 }
 
@@ -202,7 +222,7 @@ static void noc_set_qos_priority(struct msm_bus_noc_info *ninfo, uint32_t mport,
 	writel_relaxed(((reg_val & (~(NOC_QOS_PRIORITYn_P0_BMSK))) |
 		(priority->p0 & NOC_QOS_PRIORITYn_P0_BMSK)),
 		NOC_QOS_PRIORITYn_ADDR(ninfo->base, mport));
-	
+	/* Ensure qos priority is set before exiting */
 	wmb();
 }
 
@@ -217,7 +237,7 @@ static void msm_bus_noc_set_qos_bw(struct msm_bus_noc_info *ninfo,
 	}
 
 
-	
+	/* If Limiter or Regulator modes are not supported, bw not available*/
 	if (perm_mode & (NOC_QOS_PERM_MODE_LIMITER |
 		NOC_QOS_PERM_MODE_REGULATOR)) {
 		uint32_t bw_val = noc_bw_field(qbw->bw, ninfo->qos_freq);
@@ -226,6 +246,10 @@ static void msm_bus_noc_set_qos_bw(struct msm_bus_noc_info *ninfo,
 
 		MSM_BUS_DBG("NOC: BW: perm_mode: %d bw_val: %d, sat_val: %d\n",
 			perm_mode, bw_val, sat_val);
+		/*
+		 * If in Limiter/Regulator mode, first go to fixed mode.
+		 * Clear QoS accumulator
+		 **/
 		mode = readl_relaxed(NOC_QOS_MODEn_ADDR(ninfo->base,
 			mport)) & NOC_QOS_MODEn_MODE_BMSK;
 		if (mode == NOC_QOS_MODE_REGULATOR || mode ==
@@ -259,24 +283,27 @@ static void msm_bus_noc_set_qos_bw(struct msm_bus_noc_info *ninfo,
 			(~NOC_QOS_SATn_SAT_BMSK)) | (val &
 			NOC_QOS_SATn_SAT_BMSK)));
 
-		
+		/* Set mode back to what it was initially */
 		reg_val = readl_relaxed(NOC_QOS_MODEn_ADDR(ninfo->base,
 			mport));
 		writel_relaxed((reg_val & (~(NOC_QOS_MODEn_MODE_BMSK)))
 			| (mode & NOC_QOS_MODEn_MODE_BMSK),
 			NOC_QOS_MODEn_ADDR(ninfo->base, mport));
+		/* Ensure that all writes for bandwidth registers have
+		 * completed before returning
+		 */
 		wmb();
 	}
 }
 
 uint8_t msm_bus_noc_get_qos_mode(struct msm_bus_noc_info *ninfo,
-	uint32_t mport)
+	uint32_t mport, uint32_t mode, uint32_t perm_mode)
 {
-	if (NOC_QOS_MODES_ALL_PERM == ninfo->mas_modes[mport])
+	if (NOC_QOS_MODES_ALL_PERM == perm_mode)
 		return readl_relaxed(NOC_QOS_MODEn_ADDR(ninfo->base,
 			mport)) & NOC_QOS_MODEn_MODE_BMSK;
 	else
-		return 31 - __CLZ(ninfo->mas_modes[mport] &
+		return 31 - __CLZ(mode &
 			NOC_QOS_MODES_ALL_PERM);
 }
 
@@ -293,9 +320,9 @@ void msm_bus_noc_get_qos_priority(struct msm_bus_noc_info *ninfo,
 }
 
 void msm_bus_noc_get_qos_bw(struct msm_bus_noc_info *ninfo,
-	uint32_t mport, struct msm_bus_noc_qos_bw *qbw)
+	uint32_t mport, uint8_t perm_mode, struct msm_bus_noc_qos_bw *qbw)
 {
-	if (ninfo->mas_modes[mport] & (NOC_QOS_PERM_MODE_LIMITER |
+	if (perm_mode & (NOC_QOS_PERM_MODE_LIMITER |
 		NOC_QOS_PERM_MODE_REGULATOR)) {
 		uint32_t bw_val = readl_relaxed(NOC_QOS_BWn_ADDR(ninfo->
 			base, mport)) & NOC_QOS_BWn_BW_BMSK;
@@ -348,7 +375,7 @@ static int msm_bus_noc_mas_init(struct msm_bus_noc_info *ninfo,
 		}
 
 		noc_set_qos_mode(ninfo, info->node_info->qport[i], info->
-			node_info->mode);
+			node_info->mode, info->node_info->perm_mode);
 	}
 
 	return 0;
@@ -361,7 +388,8 @@ static void msm_bus_noc_node_init(void *hw_data,
 		(struct msm_bus_noc_info *)hw_data;
 
 	if (!IS_SLAVE(info->node_info->priv_id))
-		msm_bus_noc_mas_init(ninfo, info);
+		if (info->node_info->hw_sel != MSM_BUS_RPM)
+			msm_bus_noc_mas_init(ninfo, info);
 }
 
 static int msm_bus_noc_allocate_commit_data(struct msm_bus_fabric_registration
@@ -429,7 +457,7 @@ static void *msm_bus_noc_allocate_noc_data(struct platform_device *pdev,
 		}
 	}
 
-	
+	/* If it's a virtual fabric, don't get memory info */
 	if (fab_pdata->virt)
 		goto skip_mem;
 
@@ -476,7 +504,7 @@ static void msm_bus_noc_update_bw(struct msm_bus_inode_info *hop,
 	struct msm_bus_inode_info *info,
 	struct msm_bus_fabric_registration *fab_pdata,
 	void *sel_cdata, int *master_tiers,
-	long int add_bw)
+	int64_t add_bw)
 {
 	struct msm_bus_noc_info *ninfo;
 	struct msm_bus_noc_qos_bw qos_bw;
@@ -491,38 +519,50 @@ static void msm_bus_noc_update_bw(struct msm_bus_inode_info *hop,
 		return;
 	}
 
-	if (!info->node_info->qport) {
-		MSM_BUS_DBG("NOC: No QoS Ports to update bw\n");
-		return;
+	if (info->node_info->num_mports == 0) {
+		MSM_BUS_DBG("NOC: Skip Master BW\n");
+		goto skip_mas_bw;
 	}
 
 	ports = info->node_info->num_mports;
-	qos_bw.ws = info->node_info->ws;
-
 	bw = INTERLEAVED_BW(fab_pdata, add_bw, ports);
 
-	MSM_BUS_DBG("NOC: Update bw for: %d: %ld\n",
+	MSM_BUS_DBG("NOC: Update bw for: %d: %lld\n",
 		info->node_info->priv_id, add_bw);
 	for (i = 0; i < ports; i++) {
 		sel_cd->mas[info->node_info->masterp[i]].bw += bw;
 		sel_cd->mas[info->node_info->masterp[i]].hw_id =
 			info->node_info->mas_hw_id;
-		qos_bw.bw = sel_cd->mas[info->node_info->masterp[i]].bw;
-		MSM_BUS_DBG("NOC: Update mas_bw for ID: %d, BW: %ld, QoS: %u\n",
+		MSM_BUS_DBG("NOC: Update mas_bw: ID: %d, BW: %llu ports:%d\n",
 			info->node_info->priv_id,
 			sel_cd->mas[info->node_info->masterp[i]].bw,
-			qos_bw.ws);
+			ports);
+		/* Check if info is a shared master.
+		 * If it is, mark it dirty
+		 * If it isn't, then set QOS Bandwidth
+		 **/
 		if (info->node_info->hw_sel == MSM_BUS_RPM)
 			sel_cd->mas[info->node_info->masterp[i]].dirty = 1;
-		else
+		else {
+			if (!info->node_info->qport) {
+				MSM_BUS_DBG("No qos ports to update!\n");
+				break;
+			}
+			qos_bw.bw = sel_cd->mas[info->node_info->masterp[i]].
+				bw;
+			qos_bw.ws = info->node_info->ws;
 			msm_bus_noc_set_qos_bw(ninfo,
 				info->node_info->qport[i],
 				info->node_info->perm_mode, &qos_bw);
+			MSM_BUS_DBG("NOC: QoS: Update mas_bw: ws: %u\n",
+				qos_bw.ws);
+		}
 	}
 
+skip_mas_bw:
 	ports = hop->node_info->num_sports;
 	if (ports == 0) {
-		MSM_BUS_ERR("\nDIVIDE BY 0, hop: %d\n",
+		MSM_BUS_DBG("\nDIVIDE BY 0, hop: %d\n",
 			hop->node_info->priv_id);
 		return;
 	}
@@ -531,11 +571,16 @@ static void msm_bus_noc_update_bw(struct msm_bus_inode_info *hop,
 		sel_cd->slv[hop->node_info->slavep[i]].bw += bw;
 		sel_cd->slv[hop->node_info->slavep[i]].hw_id =
 			hop->node_info->slv_hw_id;
-		MSM_BUS_DBG("NOC: Update slave_bw for ID: %d -> %ld\n",
+		MSM_BUS_DBG("NOC: Update slave_bw for ID: %d -> %llu\n",
 			hop->node_info->priv_id,
 			sel_cd->slv[hop->node_info->slavep[i]].bw);
 		MSM_BUS_DBG("NOC: Update slave_bw for hw_id: %d, index: %d\n",
 			hop->node_info->slv_hw_id, hop->node_info->slavep[i]);
+		/* Check if hop is a shared slave.
+		 * If it is, mark it dirty
+		 * If it isn't, then nothing to be done as the
+		 * slaves are in bypass mode.
+		 **/
 		if (hop->node_info->hw_sel == MSM_BUS_RPM)
 			sel_cd->slv[hop->node_info->slavep[i]].dirty = 1;
 	}
@@ -545,6 +590,7 @@ static int msm_bus_noc_commit(struct msm_bus_fabric_registration
 	*fab_pdata, void *hw_data, void **cdata)
 {
 	MSM_BUS_DBG("\nReached NOC Commit\n");
+	msm_bus_remote_hw_commit(fab_pdata, hw_data, cdata);
 	return 0;
 }
 
@@ -561,7 +607,7 @@ static int msm_bus_noc_port_unhalt(uint32_t haltid, uint8_t mport)
 int msm_bus_noc_hw_init(struct msm_bus_fabric_registration *pdata,
 	struct msm_bus_hw_algorithm *hw_algo)
 {
-	
+	/* Set interleaving to true by default */
 	pdata->il_flag = true;
 	hw_algo->allocate_commit_data = msm_bus_noc_allocate_commit_data;
 	hw_algo->allocate_hw_data = msm_bus_noc_allocate_noc_data;
