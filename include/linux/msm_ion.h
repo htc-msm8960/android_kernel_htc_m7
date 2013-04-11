@@ -1,18 +1,3 @@
-/*
- *
- * Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
- *
- * This software is licensed under the terms of the GNU General Public
- * License version 2, as published by the Free Software Foundation, and
- * may be copied, distributed, and modified under those terms.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- */
-
 #ifndef _LINUX_MSM_ION_H
 #define _LINUX_MSM_ION_H
 
@@ -21,7 +6,9 @@
 enum msm_ion_heap_types {
 	ION_HEAP_TYPE_MSM_START = ION_HEAP_TYPE_CUSTOM + 1,
 	ION_HEAP_TYPE_IOMMU = ION_HEAP_TYPE_MSM_START,
+	ION_HEAP_TYPE_DMA,
 	ION_HEAP_TYPE_CP,
+	ION_HEAP_TYPE_SECURE_DMA,
 };
 
 /**
@@ -39,16 +26,19 @@ enum ion_heap_ids {
 	ION_CP_MFC_HEAP_ID = 12,
 	ION_CP_WB_HEAP_ID = 16, /* 8660 only */
 	ION_CAMERA_HEAP_ID = 20, /* 8660 only */
+	ION_SYSTEM_CONTIG_HEAP_ID = 21,
 	ION_ADSP_HEAP_ID = 22,
+	ION_PIL1_HEAP_ID = 23, /* Currently used for other PIL images */
 	ION_SF_HEAP_ID = 24,
 	ION_IOMMU_HEAP_ID = 25,
+	ION_PIL2_HEAP_ID = 26, /* Currently used for modem firmware images */
 	ION_QSECOM_HEAP_ID = 27,
 	ION_AUDIO_HEAP_ID = 28,
 
 	ION_MM_FIRMWARE_HEAP_ID = 29,
 	ION_SYSTEM_HEAP_ID = 30,
 
-	ION_HEAP_ID_RESERVED = 31 /** Bit reserved for ION_SECURE flag */
+	ION_HEAP_ID_RESERVED = 31 /** Bit reserved for ION_FLAG_SECURE flag */
 };
 
 enum ion_fixed_position {
@@ -67,18 +57,25 @@ enum cp_mem_usage {
 };
 
 #define ION_HEAP_CP_MASK		(1 << ION_HEAP_TYPE_CP)
+#define ION_HEAP_TYPE_DMA_MASK         (1 << ION_HEAP_TYPE_DMA)
 
 /**
  * Flag to use when allocating to indicate that a heap is secure.
  */
-#define ION_SECURE (1 << ION_HEAP_ID_RESERVED)
+#define ION_FLAG_SECURE (1 << ION_HEAP_ID_RESERVED)
 
 /**
  * Flag for clients to force contiguous memort allocation
  *
  * Use of this flag is carefully monitored!
  */
-#define ION_FORCE_CONTIGUOUS (1 << 30)
+#define ION_FLAG_FORCE_CONTIGUOUS (1 << 30)
+
+/**
+* Deprecated! Please use the corresponding ION_FLAG_*
+*/
+#define ION_SECURE ION_FLAG_SECURE
+#define ION_FORCE_CONTIGUOUS ION_FLAG_FORCE_CONTIGUOUS
 
 /**
  * Macro should be used with ion_heap_ids defined above.
@@ -87,6 +84,7 @@ enum cp_mem_usage {
 
 #define ION_ADSP_HEAP_NAME	"adsp"
 #define ION_VMALLOC_HEAP_NAME	"vmalloc"
+#define ION_KMALLOC_HEAP_NAME	"kmalloc"
 #define ION_AUDIO_HEAP_NAME	"audio"
 #define ION_SF_HEAP_NAME	"sf"
 #define ION_MM_HEAP_NAME	"mm"
@@ -95,6 +93,8 @@ enum cp_mem_usage {
 #define ION_MFC_HEAP_NAME	"mfc"
 #define ION_WB_HEAP_NAME	"wb"
 #define ION_MM_FIRMWARE_HEAP_NAME	"mm_fw"
+#define ION_PIL1_HEAP_NAME  "pil_1"
+#define ION_PIL2_HEAP_NAME  "pil_2"
 #define ION_QSECOM_HEAP_NAME	"qsecom"
 #define ION_FMEM_HEAP_NAME	"fmem"
 
@@ -110,6 +110,12 @@ enum cp_mem_usage {
  * defer un-mapping from the IOMMU until the buffer memory is freed.
  */
 #define ION_IOMMU_UNMAP_DELAYED 1
+
+/*
+ * This flag allows clients to defer unsecuring a buffer until the buffer
+ * is actually freed.
+ */
+#define ION_UNSECURE_DELAYED	1
 
 /**
  * struct ion_cp_heap_pdata - defines a content protection heap in the given
@@ -136,7 +142,9 @@ enum cp_mem_usage {
  *			goes from 1 -> 0
  * @setup_region:	function to be called upon ion registration
  * @memory_type:Memory type used for the heap
- * @no_nonsecure_alloc: don't allow non-secure allocations from this heap
+ * @allow_nonsecure_alloc: allow non-secure allocations from this heap. For
+ *			secure heaps, this flag must be set so allow non-secure
+ *			allocations. For non-secure heaps, this flag is ignored.
  *
  */
 struct ion_cp_heap_pdata {
@@ -150,12 +158,12 @@ struct ion_cp_heap_pdata {
 	enum ion_fixed_position fixed_position;
 	int iommu_map_all;
 	int iommu_2x_map_domain;
-	ion_virt_addr_t *virt_addr;
+	void *virt_addr;
 	int (*request_region)(void *);
 	int (*release_region)(void *);
 	void *(*setup_region)(void);
 	enum ion_memory_types memory_type;
-	int no_nonsecure_alloc;
+	int allow_nonsecure_alloc;
 };
 
 /**
@@ -228,6 +236,26 @@ int msm_ion_secure_heap_2_0(int heap_id, enum cp_mem_usage usage);
  * Returns 0 on success
  */
 int msm_ion_unsecure_heap_2_0(int heap_id, enum cp_mem_usage usage);
+
+/**
+ * msm_ion_secure_buffer - secure an individual buffer
+ *
+ * @client - client who has access to the buffer
+ * @handle - buffer to secure
+ * @usage - usage hint to TZ
+ * @flags - flags for the securing
+ */
+int msm_ion_secure_buffer(struct ion_client *client, struct ion_handle *handle,
+				enum cp_mem_usage usage, int flags);
+
+/**
+ * msm_ion_unsecure_buffer - unsecure an individual buffer
+ *
+ * @client - client who has access to the buffer
+ * @handle - buffer to secure
+ */
+int msm_ion_unsecure_buffer(struct ion_client *client,
+				struct ion_handle *handle);
 #else
 static inline int msm_ion_secure_heap(int heap_id)
 {
@@ -247,6 +275,20 @@ static inline int msm_ion_secure_heap_2_0(int heap_id, enum cp_mem_usage usage)
 
 static inline int msm_ion_unsecure_heap_2_0(int heap_id,
 					enum cp_mem_usage usage)
+{
+	return -ENODEV;
+}
+
+static inline int msm_ion_secure_buffer(struct ion_client *client,
+					struct ion_handle *handle,
+					enum cp_mem_usage usage,
+					int flags)
+{
+	return -ENODEV;
+}
+
+static inline int msm_ion_unsecure_buffer(struct ion_client *client,
+					struct ion_handle *handle)
 {
 	return -ENODEV;
 }
@@ -274,19 +316,6 @@ struct ion_flush_data {
 	unsigned int length;
 };
 
-/* struct ion_flag_data - information about flags for this buffer
- *
- * @handle:	handle to get flags from
- * @flags:	flags of this handle
- *
- * Takes handle as an input and outputs the flags from the handle
- * in the flag field.
- */
-struct ion_flag_data {
-	struct ion_handle *handle;
-	unsigned long flags;
-};
-
 #define ION_IOC_MSM_MAGIC 'M'
 
 /**
@@ -310,14 +339,5 @@ struct ion_flag_data {
  */
 #define ION_IOC_CLEAN_INV_CACHES	_IOWR(ION_IOC_MSM_MAGIC, 2, \
 						struct ion_flush_data)
-
-/**
- * DOC: ION_IOC_GET_FLAGS - get the flags of the handle
- *
- * Gets the flags of the current handle which indicate cachability,
- * secure state etc.
- */
-#define ION_IOC_GET_FLAGS		_IOWR(ION_IOC_MSM_MAGIC, 3, \
-						struct ion_flag_data)
 
 #endif

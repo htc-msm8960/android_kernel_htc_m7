@@ -1,4 +1,4 @@
-/* Copyright (c) 2012, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -15,6 +15,14 @@
 #define MDSS_MDP_HWIO_H
 
 #include <linux/bitops.h>
+
+#define IGC_LUT_ENTRIES	256
+#define GC_LUT_SEGMENTS	16
+#define ENHIST_LUT_ENTRIES 256
+#define HIST_V_SIZE	256
+
+#define MDSS_MDP_HW_REV_100		0x10000000
+#define MDSS_MDP_HW_REV_102		0x10020000
 
 #define MDSS_REG_HW_VERSION				0x0
 #define MDSS_REG_HW_INTR_STATUS				0x10
@@ -33,6 +41,10 @@
 #define MDSS_MDP_REG_HIST_INTR_EN			0x0011C
 #define MDSS_MDP_REG_HIST_INTR_STATUS			0x00120
 #define MDSS_MDP_REG_HIST_INTR_CLEAR			0x00124
+
+#define MDSS_MDP_REG_SPLIT_DISPLAY_EN			0x003F4
+#define MDSS_MDP_REG_SPLIT_DISPLAY_UPPER_PIPE_CTRL	0x003F8
+#define MDSS_MDP_REG_SPLIT_DISPLAY_LOWER_PIPE_CTRL	0x004F0
 
 #define MDSS_INTF_DSI	0x1
 #define MDSS_INTF_HDMI	0x3
@@ -73,6 +85,11 @@ enum mdss_mdp_intr_type {
 	MDSS_MDP_IRQ_INTF_UNDER_RUN = 24,
 	MDSS_MDP_IRQ_INTF_VSYNC = 25,
 };
+
+#define MDSS_MDP_REG_IGC_VIG_BASE			0x300
+#define MDSS_MDP_REG_IGC_RGB_BASE			0x310
+#define MDSS_MDP_REG_IGC_DMA_BASE			0x320
+#define MDSS_MDP_REG_IGC_DSPP_BASE			0x400
 
 enum mdss_mdp_ctl_index {
 	MDSS_MDP_CTL0,
@@ -147,10 +164,16 @@ enum mdss_mdp_sspp_chroma_samp_type {
 #define MDSS_MDP_REG_SSPP_STILE_FRAME_SIZE		0x02C
 #define MDSS_MDP_REG_SSPP_SRC_FORMAT			0x030
 #define MDSS_MDP_REG_SSPP_SRC_UNPACK_PATTERN		0x034
+#define MDSS_MDP_REG_SSPP_REQPRIO_FIFO_WM_0		0x050
+#define MDSS_MDP_REG_SSPP_REQPRIO_FIFO_WM_1		0x054
+#define MDSS_MDP_REG_SSPP_REQPRIO_FIFO_WM_2		0x058
 
 #define MDSS_MDP_REG_SSPP_SRC_OP_MODE			0x038
 #define MDSS_MDP_OP_DEINTERLACE			BIT(22)
 #define MDSS_MDP_OP_DEINTERLACE_ODD		BIT(23)
+#define MDSS_MDP_OP_IGC_ROM_1			BIT(18)
+#define MDSS_MDP_OP_IGC_ROM_0			BIT(17)
+#define MDSS_MDP_OP_IGC_EN			BIT(16)
 #define MDSS_MDP_OP_FLIP_UD			BIT(14)
 #define MDSS_MDP_OP_FLIP_LR			BIT(13)
 #define MDSS_MDP_OP_BWC_EN			BIT(0)
@@ -161,6 +184,7 @@ enum mdss_mdp_sspp_chroma_samp_type {
 #define MDSS_MDP_REG_SSPP_SRC_CONSTANT_COLOR		0x03C
 #define MDSS_MDP_REG_SSPP_FETCH_CONFIG			0x048
 #define MDSS_MDP_REG_SSPP_VC1_RANGE			0x04C
+#define MDSS_MDP_REG_SSPP_SRC_ADDR_SW_STATUS		0x070
 
 #define MDSS_MDP_REG_SSPP_CURRENT_SRC0_ADDR		0x0A4
 #define MDSS_MDP_REG_SSPP_CURRENT_SRC1_ADDR		0x0A8
@@ -179,6 +203,8 @@ enum mdss_mdp_sspp_chroma_samp_type {
 #define MDSS_MDP_REG_VIG_QSEED2_C03_INIT_PHASEY		0x224
 #define MDSS_MDP_REG_VIG_QSEED2_C12_INIT_PHASEX		0x228
 #define MDSS_MDP_REG_VIG_QSEED2_C12_INIT_PHASEY		0x22C
+#define MDSS_MDP_REG_VIG_QSEED2_SHARP			0x230
+#define MDSS_MDP_REG_VIG_PA_BASE			0x310
 
 #define MDSS_MDP_REG_SCALE_CONFIG			0x204
 #define MDSS_MDP_REG_SCALE_PHASE_STEP_X			0x210
@@ -189,23 +215,31 @@ enum mdss_mdp_sspp_chroma_samp_type {
 #define MDSS_MDP_REG_VIG_CSC_0_BASE			0x280
 #define MDSS_MDP_REG_VIG_CSC_1_BASE			0x320
 
+#define MDSS_MDP_REG_VIG_HIST_CTL_BASE			0x2C4
+#define MDSS_MDP_REG_VIG_HIST_LUT_BASE			0x2F0
+
 #define MDSS_MDP_SCALE_FILTER_NEAREST		0x0
 #define MDSS_MDP_SCALE_FILTER_BIL		0x1
 #define MDSS_MDP_SCALE_FILTER_PCMN		0x2
 #define MDSS_MDP_SCALE_FILTER_CA		0x3
 #define MDSS_MDP_SCALEY_EN			BIT(1)
 #define MDSS_MDP_SCALEX_EN			BIT(0)
+#define MDSS_MDP_FMT_SOLID_FILL			0x4037FF
 
 #define MDSS_MDP_NUM_REG_MIXERS 3
 #define MDSS_MDP_NUM_WB_MIXERS 2
 
-enum mdss_mdp_mixer_index {
-	MDSS_MDP_LAYERMIXER0,
-	MDSS_MDP_LAYERMIXER1,
-	MDSS_MDP_LAYERMIXER2,
-	MDSS_MDP_LAYERMIXER3,
-	MDSS_MDP_LAYERMIXER4,
-	MDSS_MDP_MAX_LAYERMIXER
+enum mdss_mdp_mixer_intf_index {
+	MDSS_MDP_INTF_LAYERMIXER0,
+	MDSS_MDP_INTF_LAYERMIXER1,
+	MDSS_MDP_INTF_LAYERMIXER2,
+	MDSS_MDP_INTF_MAX_LAYERMIXER,
+};
+
+enum mdss_mdp_mixer_wb_index {
+	MDSS_MDP_WB_LAYERMIXER0,
+	MDSS_MDP_WB_LAYERMIXER1,
+	MDSS_MDP_WB_MAX_LAYERMIXER,
 };
 
 enum mdss_mdp_stage_index {
@@ -259,6 +293,8 @@ enum mdss_mdp_blend_index {
 #define MDSS_MDP_REG_LM_CURSOR_BLEND_TRANSP_LOW1	0x104
 #define MDSS_MDP_REG_LM_CURSOR_BLEND_TRANSP_HIGH0	0x108
 #define MDSS_MDP_REG_LM_CURSOR_BLEND_TRANSP_HIGH1	0x10C
+
+#define MDSS_MDP_REG_LM_GC_LUT_BASE	0x110
 
 #define MDSS_MDP_LM_BORDER_COLOR		(1 << 24)
 #define MDSS_MDP_LM_CURSOR_OUT			(1 << 25)
@@ -321,6 +357,16 @@ enum mdss_mdp_dspp_index {
 	MDSS_MDP_MAX_DSPP
 };
 
+#define MDSS_MDP_REG_DSPP_OFFSET(pipe)	(0x4600 + ((pipe) * 0x400))
+#define MDSS_MDP_REG_DSPP_OP_MODE			0x000
+#define MDSS_MDP_REG_DSPP_PCC_BASE			0x030
+#define MDSS_MDP_REG_DSPP_DITHER_DEPTH			0x150
+#define MDSS_MDP_REG_DSPP_HIST_CTL_BASE			0x210
+#define MDSS_MDP_REG_DSPP_HIST_LUT_BASE			0x230
+#define MDSS_MDP_REG_DSPP_PA_BASE			0x238
+#define MDSS_MDP_REG_DSPP_GAMUT_BASE			0x2DC
+#define MDSS_MDP_REG_DSPP_GC_BASE			0x2B0
+
 enum mdss_mpd_intf_index {
 	MDSS_MDP_NO_INTF,
 	MDSS_MDP_INTF0,
@@ -376,6 +422,7 @@ enum mdss_mpd_intf_index {
 #define MDSS_MDP_REG_INTF_FRAME_COUNT			0x0AC
 #define MDSS_MDP_REG_INTF_LINE_COUNT			0x0B0
 #define MDSS_MDP_PANEL_FORMAT_RGB888			0x213F
+#define MDSS_MDP_PANEL_FORMAT_RGB666			0x212A
 
 enum mdss_mdp_pingpong_index {
 	MDSS_MDP_PINGPONG0,
@@ -383,8 +430,6 @@ enum mdss_mdp_pingpong_index {
 	MDSS_MDP_PINGPONG2,
 	MDSS_MDP_MAX_PINGPONG
 };
-
-#define MDSS_MDP_REG_PP_OFFSET(pp)	(0x21B00 + ((pp) * 0x100))
 
 #define MDSS_MDP_REG_PP_TEAR_CHECK_EN			0x000
 #define MDSS_MDP_REG_PP_SYNC_CONFIG_VSYNC		0x004
@@ -400,11 +445,14 @@ enum mdss_mdp_pingpong_index {
 #define MDSS_MDP_REG_PP_LINE_COUNT			0x02C
 #define MDSS_MDP_REG_PP_AUTOREFRESH_CONFIG		0x030
 
+#define MDSS_MDP_REG_PP_FBC_MODE			0x034
+#define MDSS_MDP_REG_PP_FBC_BUDGET_CTL			0x038
+#define MDSS_MDP_REG_PP_FBC_LOSSY_MODE			0x03C
+
 #define MDSS_MDP_REG_SMP_ALLOC_W0			0x00180
 #define MDSS_MDP_REG_SMP_ALLOC_R0			0x00230
 
-#define MDSS_MDP_SMP_MMB_SIZE		4096
-#define MDSS_MDP_SMP_MMB_BLOCKS		22
+#define MDSS_MDP_SMP_MMB_BLOCKS			22
 
 enum mdss_mdp_smp_client_index {
 	MDSS_MDP_SMP_CLIENT_UNUSED,

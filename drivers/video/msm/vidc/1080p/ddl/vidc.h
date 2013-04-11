@@ -103,6 +103,7 @@
 #define VIDC_1080P_ERROR_SPS_PARSE_ERROR         129
 #define VIDC_1080P_ERROR_PPS_PARSE_ERROR         130
 #define VIDC_1080P_ERROR_SLICE_PARSE_ERROR       131
+#define VIDC_1080P_ERROR_NON_IDR_FRAME_TYPE      132
 #define VIDC_1080P_ERROR_SYNC_POINT_NOT_RECEIVED  171
 
 #define VIDC_1080P_WARN_COMMAND_FLUSHED                  145
@@ -399,6 +400,10 @@ struct vidc_1080p_enc_frame_start_param{
 	u32 intra_frame;
 	u32 input_flush;
 	u32 slice_enable;
+	u32 store_ltr0;
+	u32 store_ltr1;
+	u32 use_ltr0;
+	u32 use_ltr1;
 	enum vidc_1080p_encode encode;
 };
 struct vidc_1080p_enc_frame_info{
@@ -585,6 +590,4 @@ void vidc_1080p_get_intermedia_stage_debug_counter(
 	u32 *intermediate_stage_counter);
 void vidc_1080p_get_exception_status(u32 *exception_status);
 void vidc_1080p_frame_start_realloc(u32 instance_id);
-void vidc_1080p_set_enc_NV21(u32 enc_nv21);
-
 #endif

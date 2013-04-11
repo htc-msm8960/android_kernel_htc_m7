@@ -92,11 +92,6 @@ static int __cpuinit krait_release_secondary_sim(unsigned long base, int cpu)
 	if (machine_is_apq8064_sim())
 		writel_relaxed(0xf0000, base_ptr+0x04);
 
-	if (machine_is_msm8974_sim()) {
-		writel_relaxed(0x800, base_ptr+0x04);
-		writel_relaxed(0x3FFF, base_ptr+0x14);
-	}
-
 	mb();
 	iounmap(base_ptr);
 	return 0;
@@ -155,9 +150,6 @@ static int __cpuinit release_secondary(unsigned int cpu)
 	if (machine_is_msm8960_sim() || machine_is_msm8960_rumi3() ||
 	    machine_is_apq8064_sim())
 		return krait_release_secondary_sim(0x02088000, cpu);
-
-	if (machine_is_msm8974_sim())
-		return krait_release_secondary_sim(0xf9088000, cpu);
 
 	if (cpu_is_msm8960() || cpu_is_msm8930() || cpu_is_msm8930aa() ||
 	    cpu_is_apq8064() || cpu_is_msm8627() || cpu_is_apq8064ab())

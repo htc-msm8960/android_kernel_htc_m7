@@ -2,7 +2,7 @@
  * include/linux/ion.h
  *
  * Copyright (C) 2011 Google, Inc.
- * Copyright (c) 2011-2012, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -33,14 +33,12 @@ struct ion_handle;
  * @ION_HEAP_TYPE_CP:	 memory allocated from a prereserved
  *				carveout heap, allocations are physically
  *				contiguous. Used for content protection.
- * @ION_HEAP_TYPE_DMA:          memory allocated via DMA API
  * @ION_HEAP_END:		helper for iterating over heaps
  */
 enum ion_heap_type {
 	ION_HEAP_TYPE_SYSTEM,
 	ION_HEAP_TYPE_SYSTEM_CONTIG,
 	ION_HEAP_TYPE_CARVEOUT,
-	ION_HEAP_TYPE_DMA,
 	ION_HEAP_TYPE_CUSTOM, /* must be last so device specific heaps always
 				 are at the end of this enum */
 	ION_NUM_HEAPS,
@@ -49,7 +47,6 @@ enum ion_heap_type {
 #define ION_HEAP_SYSTEM_MASK		(1 << ION_HEAP_TYPE_SYSTEM)
 #define ION_HEAP_SYSTEM_CONTIG_MASK	(1 << ION_HEAP_TYPE_SYSTEM_CONTIG)
 #define ION_HEAP_CARVEOUT_MASK		(1 << ION_HEAP_TYPE_CARVEOUT)
-#define ION_HEAP_TYPE_DMA_MASK         (1 << ION_HEAP_TYPE_DMA)
 
 /**
  * heap flags - the lower 16 bits are used by core ion, the upper 16
@@ -59,6 +56,9 @@ enum ion_heap_type {
 					   cached, ion will do cache
 					   maintenance when the buffer is
 					   mapped for dma */
+#define ION_FLAG_CACHED_NEEDS_SYNC 2	/* mappings of this buffer will created
+					   at mmap time, if this is set
+					   caches must be managed manually */
 
 #ifdef __KERNEL__
 #include <linux/err.h>
@@ -74,7 +74,6 @@ struct ion_buffer;
    be converted to phys_addr_t.  For the time being many kernel interfaces
    do not accept phys_addr_t's that would have to */
 #define ion_phys_addr_t unsigned long
-#define ion_virt_addr_t unsigned long
 
 /**
  * struct ion_platform_heap - defines a heap in the given platform
@@ -227,11 +226,9 @@ struct sg_table *ion_sg_table(struct ion_client *client,
  * ion_map_kernel - create mapping for the given handle
  * @client:	the client
  * @handle:	handle to map
- * @flags:	flags for this mapping
  *
  * Map the given handle into the kernel and return a kernel address that
- * can be used to access this address. If no flags are specified, this
- * will return a non-secure uncached mapping.
+ * can be used to access this address.
  */
 void *ion_map_kernel(struct ion_client *client, struct ion_handle *handle);
 
@@ -378,8 +375,6 @@ int ion_unsecure_heap(struct ion_device *dev, int heap_id, int version,
 int msm_ion_do_cache_op(struct ion_client *client, struct ion_handle *handle,
 			void *vaddr, unsigned long len, unsigned int cmd);
 
-int ion_iommu_heap_dump_size(void);
-
 #else
 static inline void ion_reserve(struct ion_platform_data *data)
 {
@@ -425,7 +420,7 @@ static inline struct sg_table *ion_sg_table(struct ion_client *client,
 }
 
 static inline void *ion_map_kernel(struct ion_client *client,
-	struct ion_handle *handle, unsigned long flags)
+	struct ion_handle *handle)
 {
 	return ERR_PTR(-ENODEV);
 }
@@ -460,6 +455,12 @@ static inline int ion_map_iommu(struct ion_client *client,
 	return -ENODEV;
 }
 
+static inline int ion_handle_get_size(struct ion_client *client,
+				struct ion_handle *handle, unsigned long *size)
+{
+	return -ENODEV;
+}
+
 static inline void ion_unmap_iommu(struct ion_client *client,
 			struct ion_handle *handle, int domain_num,
 			int partition_num)
@@ -478,6 +479,10 @@ static inline int ion_unsecure_heap(struct ion_device *dev, int heap_id,
 					int version, void *data)
 {
 	return -ENODEV;
+}
+
+static inline void ion_mark_dangling_buffers_locked(struct ion_device *dev)
+{
 }
 
 static inline int msm_ion_do_cache_op(struct ion_client *client,
@@ -599,6 +604,16 @@ struct ion_custom_data {
  * filed set to the corresponding opaque handle.
  */
 #define ION_IOC_IMPORT		_IOWR(ION_IOC_MAGIC, 5, struct ion_fd_data)
+
+/**
+ * DOC: ION_IOC_SYNC - syncs a shared file descriptors to memory
+ *
+ * Deprecated in favor of using the dma_buf api's correctly (syncing
+ * will happend automatically when the buffer is mapped to a device).
+ * If necessary should be used after touching a cached buffer from the cpu,
+ * this will make the buffer in memory coherent.
+ */
+#define ION_IOC_SYNC		_IOWR(ION_IOC_MAGIC, 7, struct ion_fd_data)
 
 /**
  * DOC: ION_IOC_CUSTOM - call architecture specific ion ioctl

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -11,11 +11,17 @@
  *
  */
 
-#ifndef __ADRENO_POSTMORTEM_H
-#define __ADRENO_POSTMORTEM_H
+#ifndef __MDSS_HDMI_MHL_H__
+#define __MDSS_HDMI_MHL_H__
 
-struct kgsl_device;
+#include <linux/platform_device.h>
 
-int adreno_postmortem_dump(struct kgsl_device *device, int manual);
+struct msm_hdmi_mhl_ops {
+	u8 (*tmds_enabled)(struct platform_device *pdev);
+	int (*set_mhl_max_pclk)(struct platform_device *pdev, u32 max_val);
+};
 
-#endif 
+int msm_hdmi_register_mhl(struct platform_device *pdev,
+			  struct msm_hdmi_mhl_ops *ops);
+
+#endif /* __MDSS_HDMI_MHL_H__ */

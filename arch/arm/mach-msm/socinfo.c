@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2009-2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -10,10 +10,22 @@
  * GNU General Public License for more details.
  *
  */
+/*
+ * SOC Info Routines
+ *
+ */
 
-#include <linux/types.h>
+#include <linux/err.h>
+#include <linux/of.h>
+#include <linux/platform_device.h>
+#include <linux/sys_soc.h>
+#include <linux/slab.h>
+#include <linux/stat.h>
 #include <linux/sysdev.h>
+#include <linux/types.h>
+
 #include <asm/mach-types.h>
+
 #include <mach/socinfo.h>
 
 #include "smd_private.h"
@@ -29,8 +41,11 @@ enum {
 	HW_PLATFORM_SVLTE_SURF	= 5,
 	HW_PLATFORM_MTP  = 8,
 	HW_PLATFORM_LIQUID  = 9,
-	
+	/* Dragonboard platform id is assigned as 10 in CDT */
 	HW_PLATFORM_DRAGON	= 10,
+	HW_PLATFORM_QRD	= 11,
+	HW_PLATFORM_HRD	= 13,
+	HW_PLATFORM_DTV	= 14,
 	HW_PLATFORM_INVALID
 };
 
@@ -43,7 +58,10 @@ const char *hw_platform[] = {
 	[HW_PLATFORM_SVLTE_SURF] = "SLVTE_SURF",
 	[HW_PLATFORM_MTP] = "MTP",
 	[HW_PLATFORM_LIQUID] = "Liquid",
-	[HW_PLATFORM_DRAGON] = "Dragon"
+	[HW_PLATFORM_DRAGON] = "Dragon",
+	[HW_PLATFORM_QRD] = "QRD",
+	[HW_PLATFORM_HRD] = "HRD",
+	[HW_PLATFORM_DTV] = "DTV",
 };
 
 enum {
@@ -66,6 +84,7 @@ const char *hw_platform_subtype[] = {
 	[PLATFORM_SUBTYPE_STRANGE_2A] = "strange_2a,"
 };
 
+/* Used to parse shared memory.  Must match the modem. */
 struct socinfo_v1 {
 	uint32_t format;
 	uint32_t id;
@@ -76,7 +95,7 @@ struct socinfo_v1 {
 struct socinfo_v2 {
 	struct socinfo_v1 v1;
 
-	
+	/* only valid when format==2 */
 	uint32_t raw_id;
 	uint32_t raw_version;
 };
@@ -84,37 +103,47 @@ struct socinfo_v2 {
 struct socinfo_v3 {
 	struct socinfo_v2 v2;
 
-	
+	/* only valid when format==3 */
 	uint32_t hw_platform;
 };
 
 struct socinfo_v4 {
 	struct socinfo_v3 v3;
 
-	
+	/* only valid when format==4 */
 	uint32_t platform_version;
 };
 
 struct socinfo_v5 {
 	struct socinfo_v4 v4;
 
-	
+	/* only valid when format==5 */
 	uint32_t accessory_chip;
 };
 
 struct socinfo_v6 {
 	struct socinfo_v5 v5;
 
-	
+	/* only valid when format==6 */
 	uint32_t hw_platform_subtype;
 };
 
 struct socinfo_v7 {
 	struct socinfo_v6 v6;
 
-	
+	/* only valid when format==7 */
 	uint32_t pmic_model;
 	uint32_t pmic_die_revision;
+};
+
+struct socinfo_v8 {
+	struct socinfo_v7 v7;
+
+	/* only valid when format==8*/
+	uint32_t pmic_model_1;
+	uint32_t pmic_die_revision_1;
+	uint32_t pmic_model_2;
+	uint32_t pmic_die_revision_2;
 };
 
 static union {
@@ -125,11 +154,12 @@ static union {
 	struct socinfo_v5 v5;
 	struct socinfo_v6 v6;
 	struct socinfo_v7 v7;
+	struct socinfo_v8 v8;
 } *socinfo;
 
 static enum msm_cpu cpu_of_id[] = {
 
-	
+	/* 7x01 IDs */
 	[1]  = MSM_CPU_7X01,
 	[16] = MSM_CPU_7X01,
 	[17] = MSM_CPU_7X01,
@@ -143,135 +173,185 @@ static enum msm_cpu cpu_of_id[] = {
 	[34] = MSM_CPU_7X01,
 	[35] = MSM_CPU_7X01,
 
-	
+	/* 7x25 IDs */
 	[20] = MSM_CPU_7X25,
-	[21] = MSM_CPU_7X25, 
-	[24] = MSM_CPU_7X25, 
-	[27] = MSM_CPU_7X25, 
+	[21] = MSM_CPU_7X25, /* 7225 */
+	[24] = MSM_CPU_7X25, /* 7525 */
+	[27] = MSM_CPU_7X25, /* 7625 */
 	[39] = MSM_CPU_7X25,
 	[40] = MSM_CPU_7X25,
 	[41] = MSM_CPU_7X25,
 	[42] = MSM_CPU_7X25,
-	[62] = MSM_CPU_7X25, 
-	[63] = MSM_CPU_7X25, 
-	[66] = MSM_CPU_7X25, 
+	[62] = MSM_CPU_7X25, /* 7625-1 */
+	[63] = MSM_CPU_7X25, /* 7225-1 */
+	[66] = MSM_CPU_7X25, /* 7225-2 */
 
 
-	
+	/* 7x27 IDs */
 	[43] = MSM_CPU_7X27,
 	[44] = MSM_CPU_7X27,
 	[61] = MSM_CPU_7X27,
-	[67] = MSM_CPU_7X27, 
-	[68] = MSM_CPU_7X27, 
-	[69] = MSM_CPU_7X27, 
+	[67] = MSM_CPU_7X27, /* 7227-1 */
+	[68] = MSM_CPU_7X27, /* 7627-1 */
+	[69] = MSM_CPU_7X27, /* 7627-2 */
 
 
-	
+	/* 8x50 IDs */
 	[30] = MSM_CPU_8X50,
 	[36] = MSM_CPU_8X50,
 	[37] = MSM_CPU_8X50,
 	[38] = MSM_CPU_8X50,
 
-	
+	/* 7x30 IDs */
 	[59] = MSM_CPU_7X30,
 	[60] = MSM_CPU_7X30,
 
-	
+	/* 8x55 IDs */
 	[74] = MSM_CPU_8X55,
 	[75] = MSM_CPU_8X55,
 	[85] = MSM_CPU_8X55,
 
-	
+	/* 8x60 IDs */
 	[70] = MSM_CPU_8X60,
 	[71] = MSM_CPU_8X60,
 	[86] = MSM_CPU_8X60,
 
-	
+	/* 8960 IDs */
 	[87] = MSM_CPU_8960,
 
-	
+	/* 7x25A IDs */
 	[88] = MSM_CPU_7X25A,
 	[89] = MSM_CPU_7X25A,
 	[96] = MSM_CPU_7X25A,
 
-	
+	/* 7x27A IDs */
 	[90] = MSM_CPU_7X27A,
 	[91] = MSM_CPU_7X27A,
 	[92] = MSM_CPU_7X27A,
 	[97] = MSM_CPU_7X27A,
 
-	
+	/* FSM9xxx ID */
 	[94] = FSM_CPU_9XXX,
 	[95] = FSM_CPU_9XXX,
 
-	
+	/*  7x25AA ID */
 	[98] = MSM_CPU_7X25AA,
 	[99] = MSM_CPU_7X25AA,
 	[100] = MSM_CPU_7X25AA,
 
-	
+	/*  7x27AA ID */
 	[101] = MSM_CPU_7X27AA,
 	[102] = MSM_CPU_7X27AA,
 	[103] = MSM_CPU_7X27AA,
 	[136] = MSM_CPU_7X27AA,
 
-	
+	/* 9x15 ID */
 	[104] = MSM_CPU_9615,
 	[105] = MSM_CPU_9615,
 	[106] = MSM_CPU_9615,
 	[107] = MSM_CPU_9615,
+	[171] = MSM_CPU_9615,
 
-	
+	/* 8064 IDs */
 	[109] = MSM_CPU_8064,
 
-	
+	/* 8930 IDs */
 	[116] = MSM_CPU_8930,
 	[117] = MSM_CPU_8930,
 	[118] = MSM_CPU_8930,
 	[119] = MSM_CPU_8930,
+	[179] = MSM_CPU_8930,
 
-	
+	/* 8627 IDs */
 	[120] = MSM_CPU_8627,
 	[121] = MSM_CPU_8627,
 
-	
+	/* 8660A ID */
 	[122] = MSM_CPU_8960,
 
-	
+	/* 8260A ID */
 	[123] = MSM_CPU_8960,
 
-	
+	/* 8060A ID */
 	[124] = MSM_CPU_8960,
 
-	
+	/* 8974 IDs */
 	[126] = MSM_CPU_8974,
+	[184] = MSM_CPU_8974,
 
-	
+	/* 8625 IDs */
 	[127] = MSM_CPU_8625,
 	[128] = MSM_CPU_8625,
 	[129] = MSM_CPU_8625,
 	[137] = MSM_CPU_8625,
+	[167] = MSM_CPU_8625,
 
-	
+	/* 8064 MPQ ID */
 	[130] = MSM_CPU_8064,
 
-	
+	/* 7x25AB IDs */
 	[131] = MSM_CPU_7X25AB,
 	[132] = MSM_CPU_7X25AB,
 	[133] = MSM_CPU_7X25AB,
 	[135] = MSM_CPU_7X25AB,
 
-	
+	/* 9625 IDs */
 	[134] = MSM_CPU_9625,
+	[148] = MSM_CPU_9625,
+	[149] = MSM_CPU_9625,
+	[150] = MSM_CPU_9625,
+	[151] = MSM_CPU_9625,
+	[152] = MSM_CPU_9625,
+	[173] = MSM_CPU_9625,
+	[174] = MSM_CPU_9625,
+	[175] = MSM_CPU_9625,
 
-	
+	/* 8960AB IDs */
+	[138] = MSM_CPU_8960AB,
+	[139] = MSM_CPU_8960AB,
+	[140] = MSM_CPU_8960AB,
+	[141] = MSM_CPU_8960AB,
+
+	/* 8930AA IDs */
 	[142] = MSM_CPU_8930AA,
 	[143] = MSM_CPU_8930AA,
 	[144] = MSM_CPU_8930AA,
+	[160] = MSM_CPU_8930AA,
+	[180] = MSM_CPU_8930AA,
 
-	
+	/* 8226 IDs */
+	[145] = MSM_CPU_8226,
+
+	/* 8092 IDs */
+	[146] = MSM_CPU_8092,
+
+	/* 8610 IDs */
+	[147] = MSM_CPU_8610,
+
+	/* 8064AB IDs */
 	[153] = MSM_CPU_8064AB,
 
+	/* 8930AB IDs */
+	[154] = MSM_CPU_8930AB,
+	[155] = MSM_CPU_8930AB,
+	[156] = MSM_CPU_8930AB,
+	[157] = MSM_CPU_8930AB,
+	[181] = MSM_CPU_8930AB,
+
+	/* 8625Q IDs */
+	[168] = MSM_CPU_8625Q,
+	[169] = MSM_CPU_8625Q,
+	[170] = MSM_CPU_8625Q,
+
+	/* 8064AA IDs */
+	[172] = MSM_CPU_8064AA,
+
+	/* zinc IDs */
+	[178] = MSM_CPU_ZINC,
+
+	/* Uninitialized IDs are not known to run Linux.
+	   MSM_CPU_UNKNOWN is set to 0 to ensure these IDs are
+	   considered as unknown CPU. */
 };
 
 static enum msm_cpu cur_cpu;
@@ -326,6 +406,8 @@ uint32_t socinfo_get_platform_version(void)
 		: 0;
 }
 
+/* This information is directly encoded by the machine id */
+/* Thus no external callers rely on this information at the moment */
 static uint32_t socinfo_get_accessory_chip(void)
 {
 	return socinfo ?
@@ -353,6 +435,11 @@ uint32_t socinfo_get_pmic_die_revision(void)
 	return socinfo ?
 		(socinfo->v1.format >= 7 ? socinfo->v7.pmic_die_revision : 0)
 		: 0;
+}
+
+static uint32_t socinfo_get_format(void)
+{
+	return socinfo ? socinfo->v1.format : 0;
 }
 
 enum msm_cpu socinfo_get_msm_cpu(void)
@@ -563,6 +650,100 @@ socinfo_show_pmic_die_revision(struct sys_device *dev,
 		socinfo_get_pmic_die_revision());
 }
 
+static ssize_t
+msm_get_vendor(struct device *dev,
+		struct device_attribute *attr,
+		char *buf)
+{
+	return snprintf(buf, PAGE_SIZE, "Qualcomm\n");
+}
+
+static ssize_t
+msm_get_raw_id(struct device *dev,
+		struct device_attribute *attr,
+		char *buf)
+{
+	return snprintf(buf, PAGE_SIZE, "%u\n",
+		socinfo_get_raw_id());
+}
+
+static ssize_t
+msm_get_raw_version(struct device *dev,
+		     struct device_attribute *attr,
+		     char *buf)
+{
+	return snprintf(buf, PAGE_SIZE, "%u\n",
+		socinfo_get_raw_version());
+}
+
+static ssize_t
+msm_get_build_id(struct device *dev,
+		   struct device_attribute *attr,
+		   char *buf)
+{
+	return snprintf(buf, PAGE_SIZE, "%-.32s\n",
+			socinfo_get_build_id());
+}
+
+static ssize_t
+msm_get_hw_platform(struct device *dev,
+			struct device_attribute *attr,
+			char *buf)
+{
+	uint32_t hw_type;
+	hw_type = socinfo_get_platform_type();
+
+	return snprintf(buf, PAGE_SIZE, "%-.32s\n",
+			hw_platform[hw_type]);
+}
+
+static ssize_t
+msm_get_platform_version(struct device *dev,
+				struct device_attribute *attr,
+				char *buf)
+{
+	return snprintf(buf, PAGE_SIZE, "%u\n",
+		socinfo_get_platform_version());
+}
+
+static ssize_t
+msm_get_accessory_chip(struct device *dev,
+				struct device_attribute *attr,
+				char *buf)
+{
+	return snprintf(buf, PAGE_SIZE, "%u\n",
+		socinfo_get_accessory_chip());
+}
+
+static ssize_t
+msm_get_platform_subtype(struct device *dev,
+			struct device_attribute *attr,
+			char *buf)
+{
+	uint32_t hw_subtype;
+	hw_subtype = socinfo_get_platform_subtype();
+	return snprintf(buf, PAGE_SIZE, "%-.32s\n",
+		hw_platform_subtype[hw_subtype]);
+}
+
+static ssize_t
+msm_get_pmic_model(struct device *dev,
+			struct device_attribute *attr,
+			char *buf)
+{
+	return snprintf(buf, PAGE_SIZE, "%u\n",
+		socinfo_get_pmic_model());
+}
+
+static ssize_t
+msm_get_pmic_die_revision(struct device *dev,
+			       struct device_attribute *attr,
+			       char *buf)
+{
+	return snprintf(buf, PAGE_SIZE, "%u\n",
+			 socinfo_get_pmic_die_revision());
+}
+
 static struct sysdev_attribute socinfo_v1_files[] = {
 	_SYSDEV_ATTR(id, 0444, socinfo_show_id, NULL),
 	_SYSDEV_ATTR(version, 0444, socinfo_show_version, NULL),
@@ -600,6 +781,42 @@ static struct sysdev_attribute socinfo_v7_files[] = {
 			socinfo_show_pmic_die_revision, NULL),
 };
 
+static struct device_attribute msm_soc_attr_raw_version =
+	__ATTR(raw_version, S_IRUGO, msm_get_raw_version,  NULL);
+
+static struct device_attribute msm_soc_attr_raw_id =
+	__ATTR(raw_id, S_IRUGO, msm_get_raw_id,  NULL);
+
+static struct device_attribute msm_soc_attr_vendor =
+	__ATTR(vendor, S_IRUGO, msm_get_vendor,  NULL);
+
+static struct device_attribute msm_soc_attr_build_id =
+	__ATTR(build_id, S_IRUGO, msm_get_build_id, NULL);
+
+static struct device_attribute msm_soc_attr_hw_platform =
+	__ATTR(hw_platform, S_IRUGO, msm_get_hw_platform, NULL);
+
+
+static struct device_attribute msm_soc_attr_platform_version =
+	__ATTR(platform_version, S_IRUGO,
+			msm_get_platform_version, NULL);
+
+static struct device_attribute msm_soc_attr_accessory_chip =
+	__ATTR(accessory_chip, S_IRUGO,
+			msm_get_accessory_chip, NULL);
+
+static struct device_attribute msm_soc_attr_platform_subtype =
+	__ATTR(platform_subtype, S_IRUGO,
+			msm_get_platform_subtype, NULL);
+
+static struct device_attribute msm_soc_attr_pmic_model =
+	__ATTR(pmic_model, S_IRUGO,
+			msm_get_pmic_model, NULL);
+
+static struct device_attribute msm_soc_attr_pmic_die_revision =
+	__ATTR(pmic_die_revision, S_IRUGO,
+			msm_get_pmic_die_revision, NULL);
+
 static struct sysdev_class soc_sysdev_class = {
 	.name = "soc",
 };
@@ -625,15 +842,110 @@ static int __init socinfo_create_files(struct sys_device *dev,
 	return 0;
 }
 
+static void * __init setup_dummy_socinfo(void)
+{
+	if (early_machine_is_mpq8092()) {
+		dummy_socinfo.id = 146;
+		strlcpy(dummy_socinfo.build_id, "mpq8092 - ",
+		sizeof(dummy_socinfo.build_id));
+	} else if (early_machine_is_msm8610()) {
+		dummy_socinfo.id = 147;
+		strlcpy(dummy_socinfo.build_id, "msm8610 - ",
+			sizeof(dummy_socinfo.build_id));
+	} else if (early_machine_is_msmzinc()) {
+		dummy_socinfo.id = 178;
+		strlcpy(dummy_socinfo.build_id, "msmzinc - ",
+			sizeof(dummy_socinfo.build_id));
+	}
+	strlcat(dummy_socinfo.build_id, "Dummy socinfo",
+		sizeof(dummy_socinfo.build_id));
+	return (void *) &dummy_socinfo;
+}
+
+static void __init populate_soc_sysfs_files(struct device *msm_soc_device)
+{
+	uint32_t legacy_format = socinfo_get_format();
+
+	device_create_file(msm_soc_device, &msm_soc_attr_vendor);
+
+	switch (legacy_format) {
+	case 8:
+	case 7:
+		device_create_file(msm_soc_device,
+					&msm_soc_attr_pmic_model);
+		device_create_file(msm_soc_device,
+					&msm_soc_attr_pmic_die_revision);
+	case 6:
+		device_create_file(msm_soc_device,
+					&msm_soc_attr_platform_subtype);
+	case 5:
+		device_create_file(msm_soc_device,
+					&msm_soc_attr_accessory_chip);
+	case 4:
+		device_create_file(msm_soc_device,
+					&msm_soc_attr_platform_version);
+	case 3:
+		device_create_file(msm_soc_device,
+					&msm_soc_attr_hw_platform);
+	case 2:
+		device_create_file(msm_soc_device,
+					&msm_soc_attr_raw_id);
+		device_create_file(msm_soc_device,
+					&msm_soc_attr_raw_version);
+	case 1:
+		device_create_file(msm_soc_device,
+					&msm_soc_attr_build_id);
+		break;
+	default:
+		pr_err("%s:Unknown socinfo format:%u\n", __func__,
+				legacy_format);
+		break;
+	}
+
+	return;
+}
+
+static void  __init soc_info_populate(struct soc_device_attribute *soc_dev_attr)
+{
+	uint32_t soc_version = socinfo_get_version();
+
+	soc_dev_attr->soc_id   = kasprintf(GFP_KERNEL, "%d", socinfo_get_id());
+	soc_dev_attr->machine  = "Snapdragon";
+	soc_dev_attr->revision = kasprintf(GFP_KERNEL, "%u.%u",
+			SOCINFO_VERSION_MAJOR(soc_version),
+			SOCINFO_VERSION_MINOR(soc_version));
+	return;
+
+}
+
 static int __init socinfo_init_sysdev(void)
 {
 	int err;
+	struct device *msm_soc_device;
+	struct soc_device *soc_dev;
+	struct soc_device_attribute *soc_dev_attr;
 
 	if (!socinfo) {
 		pr_err("%s: No socinfo found!\n", __func__);
 		return -ENODEV;
 	}
 
+	soc_dev_attr = kzalloc(sizeof(*soc_dev_attr), GFP_KERNEL);
+	if (!soc_dev_attr) {
+		pr_err("%s: Soc Device alloc failed!\n", __func__);
+		return -ENOMEM;
+	}
+
+	soc_info_populate(soc_dev_attr);
+	soc_dev = soc_device_register(soc_dev_attr);
+	if (IS_ERR_OR_NULL(soc_dev)) {
+		kfree(soc_dev_attr);
+		 pr_err("%s: Soc device register failed\n", __func__);
+		 return -EIO;
+	}
+
+	msm_soc_device = soc_device_to_device(soc_dev);
+	populate_soc_sysfs_files(msm_soc_device);
 	err = sysdev_class_register(&soc_sysdev_class);
 	if (err) {
 		pr_err("%s: sysdev_class_register fail (%d)\n",
@@ -680,77 +992,16 @@ static int __init socinfo_init_sysdev(void)
 	if (socinfo->v1.format < 7)
 		return err;
 
-	return socinfo_create_files(&soc_sys_device, socinfo_v7_files,
+	socinfo_create_files(&soc_sys_device, socinfo_v7_files,
 				ARRAY_SIZE(socinfo_v7_files));
+
+	return 0;
 }
 
 arch_initcall(socinfo_init_sysdev);
 
-static void * __init setup_dummy_socinfo(void)
+static void socinfo_print(void)
 {
-	if (machine_is_msm8960_rumi3() || machine_is_msm8960_sim() ||
-	    machine_is_msm8960_cdp())
-		dummy_socinfo.id = 87;
-	else if (machine_is_apq8064_rumi3() || machine_is_apq8064_sim())
-		dummy_socinfo.id = 109;
-	else if (machine_is_msm9615_mtp() || machine_is_msm9615_cdp())
-		dummy_socinfo.id = 104;
-	else if (early_machine_is_msm8974()) {
-		dummy_socinfo.id = 126;
-		strlcpy(dummy_socinfo.build_id, "msm8974 - ",
-			sizeof(dummy_socinfo.build_id));
-	} else if (early_machine_is_msm9625()) {
-		dummy_socinfo.id = 134;
-		strlcpy(dummy_socinfo.build_id, "msm9625 - ",
-			sizeof(dummy_socinfo.build_id));
-	} else if (machine_is_msm8625_rumi3())
-		dummy_socinfo.id = 127;
-	strlcat(dummy_socinfo.build_id, "Dummy socinfo",
-		sizeof(dummy_socinfo.build_id));
-	return (void *) &dummy_socinfo;
-}
-
-int __init socinfo_init(void)
-{
-	socinfo = smem_alloc(SMEM_HW_SW_BUILD_ID, sizeof(struct socinfo_v7));
-
-	if (!socinfo)
-		socinfo = smem_alloc(SMEM_HW_SW_BUILD_ID,
-				sizeof(struct socinfo_v6));
-
-	if (!socinfo)
-		socinfo = smem_alloc(SMEM_HW_SW_BUILD_ID,
-				sizeof(struct socinfo_v5));
-
-	if (!socinfo)
-		socinfo = smem_alloc(SMEM_HW_SW_BUILD_ID,
-				sizeof(struct socinfo_v4));
-
-	if (!socinfo)
-		socinfo = smem_alloc(SMEM_HW_SW_BUILD_ID,
-				sizeof(struct socinfo_v3));
-
-	if (!socinfo)
-		socinfo = smem_alloc(SMEM_HW_SW_BUILD_ID,
-				sizeof(struct socinfo_v2));
-
-	if (!socinfo)
-		socinfo = smem_alloc(SMEM_HW_SW_BUILD_ID,
-				sizeof(struct socinfo_v1));
-
-	if (!socinfo) {
-		pr_warn("%s: Can't find SMEM_HW_SW_BUILD_ID; falling back on "
-			"dummy values.\n", __func__);
-		socinfo = setup_dummy_socinfo();
-	}
-
-	WARN(!socinfo_get_id(), "Unknown SOC ID!\n");
-	WARN(socinfo_get_id() >= ARRAY_SIZE(cpu_of_id),
-		"New IDs added! ID => CPU mapping might need an update.\n");
-
-	if (socinfo->v1.id < ARRAY_SIZE(cpu_of_id))
-		cur_cpu = cpu_of_id[socinfo->v1.id];
-
 	switch (socinfo->v1.format) {
 	case 1:
 		pr_info("%s: v%u, id=%u, ver=%u.%u\n",
@@ -808,6 +1059,7 @@ int __init socinfo_init(void)
 			socinfo->v5.accessory_chip,
 			socinfo->v6.hw_platform_subtype);
 		break;
+	case 8:
 	case 7:
 		pr_info("%s: v%u, id=%u, ver=%u.%u, raw_id=%u, raw_ver=%u, hw_plat=%u, hw_plat_ver=%u\n accessory_chip=%u, hw_plat_subtype=%u, pmic_model=%u, pmic_die_revision=%u\n",
 			__func__,
@@ -826,6 +1078,54 @@ int __init socinfo_init(void)
 		pr_err("%s: Unknown format found\n", __func__);
 		break;
 	}
+}
+
+int __init socinfo_init(void)
+{
+	socinfo = smem_alloc(SMEM_HW_SW_BUILD_ID, sizeof(struct socinfo_v8));
+
+	if (!socinfo)
+		socinfo = smem_alloc(SMEM_HW_SW_BUILD_ID,
+				sizeof(struct socinfo_v7));
+
+	if (!socinfo)
+		socinfo = smem_alloc(SMEM_HW_SW_BUILD_ID,
+				sizeof(struct socinfo_v6));
+
+	if (!socinfo)
+		socinfo = smem_alloc(SMEM_HW_SW_BUILD_ID,
+				sizeof(struct socinfo_v5));
+
+	if (!socinfo)
+		socinfo = smem_alloc(SMEM_HW_SW_BUILD_ID,
+				sizeof(struct socinfo_v4));
+
+	if (!socinfo)
+		socinfo = smem_alloc(SMEM_HW_SW_BUILD_ID,
+				sizeof(struct socinfo_v3));
+
+	if (!socinfo)
+		socinfo = smem_alloc(SMEM_HW_SW_BUILD_ID,
+				sizeof(struct socinfo_v2));
+
+	if (!socinfo)
+		socinfo = smem_alloc(SMEM_HW_SW_BUILD_ID,
+				sizeof(struct socinfo_v1));
+
+	if (!socinfo) {
+		pr_warn("%s: Can't find SMEM_HW_SW_BUILD_ID; falling back on dummy values.\n",
+				__func__);
+		socinfo = setup_dummy_socinfo();
+	}
+
+	WARN(!socinfo_get_id(), "Unknown SOC ID!\n");
+	WARN(socinfo_get_id() >= ARRAY_SIZE(cpu_of_id),
+		"New IDs added! ID => CPU mapping might need an update.\n");
+
+	if (socinfo->v1.id < ARRAY_SIZE(cpu_of_id))
+		cur_cpu = cpu_of_id[socinfo->v1.id];
+
+	socinfo_print();
 
 	return 0;
 }
@@ -835,20 +1135,15 @@ const int get_core_count(void)
 	if (!(read_cpuid_mpidr() & BIT(31)))
 		return 1;
 
-	if (read_cpuid_mpidr() & BIT(30) &&
-		!machine_is_msm8960_sim() &&
-		!machine_is_apq8064_sim())
+	if (read_cpuid_mpidr() & BIT(30))
 		return 1;
 
-	
+	/* 1 + the PART[1:0] field of MIDR */
 	return ((read_cpuid_id() >> 4) & 3) + 1;
 }
 
 const int read_msm_cpu_type(void)
 {
-	if (machine_is_msm8960_sim() || machine_is_msm8960_rumi3())
-		return MSM_CPU_8960;
-
 	if (socinfo_get_msm_cpu() != MSM_CPU_UNKNOWN)
 		return socinfo_get_msm_cpu();
 
@@ -865,15 +1160,25 @@ const int read_msm_cpu_type(void)
 	case 0x512F04D0:
 		return MSM_CPU_8960;
 
-	case 0x51404D11: 
+	case 0x51404D11: /* We can't get here unless we are in bringup */
 		return MSM_CPU_8930;
 
 	case 0x510F06F0:
 		return MSM_CPU_8064;
 
+	case 0x511F06F1:
+	case 0x511F06F2:
+	case 0x512F06F0:
+		return MSM_CPU_8974;
+
 	default:
 		return MSM_CPU_UNKNOWN;
 	};
+}
+
+const int cpu_is_krait(void)
+{
+	return ((read_cpuid_id() & 0xFF00FC00) == 0x51000400);
 }
 
 const int cpu_is_krait_v1(void)
@@ -889,12 +1194,32 @@ const int cpu_is_krait_v1(void)
 	};
 }
 
+const int cpu_is_krait_v2(void)
+{
+	switch (read_cpuid_id()) {
+	case 0x511F04D0:
+	case 0x511F04D1:
+	case 0x511F04D2:
+	case 0x511F04D3:
+	case 0x511F04D4:
+
+	case 0x510F06F0:
+	case 0x510F06F1:
+	case 0x510F06F2:
+		return 1;
+
+	default:
+		return 0;
+	};
+}
+
 const int cpu_is_krait_v3(void)
 {
 	switch (read_cpuid_id()) {
 	case 0x512F04D0:
 	case 0x511F06F0:
 	case 0x511F06F1:
+	case 0x511F06F2:
 	case 0x510F05D0:
 		return 1;
 

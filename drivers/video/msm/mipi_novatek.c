@@ -314,10 +314,12 @@ static uint32 mipi_novatek_manufacture_id(struct msm_fb_data_type *mfd)
 {
 	struct dcs_cmd_req cmdreq;
 
+	memset(&cmdreq, 0, sizeof(cmdreq));
 	cmdreq.cmds = &novatek_manufacture_id_cmd;
 	cmdreq.cmds_cnt = 1;
 	cmdreq.flags = CMD_REQ_RX | CMD_REQ_COMMIT;
 	cmdreq.rlen = 3;
+	cmdreq.rbuf = NULL;
 	cmdreq.cb = mipi_novatek_manufacture_cb; /* call back */
 	mipi_dsi_cmdlist_put(&cmdreq);
 	/*
@@ -464,6 +466,12 @@ static struct dsi_cmd_desc backlight_cmd = {
 static void mipi_novatek_set_backlight(struct msm_fb_data_type *mfd)
 {
 	struct dcs_cmd_req cmdreq;
+
+	if (mipi_novatek_pdata &&
+	    mipi_novatek_pdata->gpio_set_backlight) {
+		mipi_novatek_pdata->gpio_set_backlight(mfd->bl_level);
+		return;
+	}
 
 	if ((mipi_novatek_pdata->enable_wled_bl_ctrl)
 	    && (wled_trigger_initialized)) {

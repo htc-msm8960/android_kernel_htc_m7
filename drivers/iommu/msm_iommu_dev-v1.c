@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -21,67 +21,198 @@
 #include <linux/interrupt.h>
 #include <linux/err.h>
 #include <linux/slab.h>
-#include <linux/atomic.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
 #include <linux/of_device.h>
 
-#include <mach/iommu_hw-v2.h>
+#include <mach/iommu_hw-v1.h>
 #include <mach/iommu.h>
+#include <mach/iommu_perfmon.h>
+
+static int msm_iommu_parse_bfb_settings(struct platform_device *pdev,
+				    struct msm_iommu_drvdata *drvdata)
+{
+	struct msm_iommu_bfb_settings *bfb_settings;
+	u32 nreg, nval;
+	int ret;
+
+	/*
+	 * It is not valid for a device to have the qcom,iommu-bfb-regs
+	 * property but not the qcom,iommu-bfb-data property, and vice versa.
+	 */
+	if (!of_get_property(pdev->dev.of_node, "qcom,iommu-bfb-regs", &nreg)) {
+		if (of_get_property(pdev->dev.of_node, "qcom,iommu-bfb-data",
+				    &nval))
+			return -EINVAL;
+		return 0;
+	}
+
+	if (!of_get_property(pdev->dev.of_node, "qcom,iommu-bfb-data", &nval))
+		return -EINVAL;
+
+	if (nreg >= sizeof(bfb_settings->regs))
+		return -EINVAL;
+
+	if (nval >= sizeof(bfb_settings->data))
+		return -EINVAL;
+
+	if (nval != nreg)
+		return -EINVAL;
+
+	bfb_settings = devm_kzalloc(&pdev->dev, sizeof(*bfb_settings),
+				    GFP_KERNEL);
+	if (!bfb_settings)
+		return -ENOMEM;
+
+	ret = of_property_read_u32_array(pdev->dev.of_node,
+					 "qcom,iommu-bfb-regs",
+					 bfb_settings->regs,
+					 nreg / sizeof(*bfb_settings->regs));
+	if (ret)
+		return ret;
+
+	ret = of_property_read_u32_array(pdev->dev.of_node,
+					 "qcom,iommu-bfb-data",
+					 bfb_settings->data,
+					 nval / sizeof(*bfb_settings->data));
+	if (ret)
+		return ret;
+
+	bfb_settings->length = nreg / sizeof(*bfb_settings->regs);
+
+	drvdata->bfb_settings = bfb_settings;
+	return 0;
+}
 
 static int msm_iommu_parse_dt(struct platform_device *pdev,
 				struct msm_iommu_drvdata *drvdata)
 {
 	struct device_node *child;
 	int ret = 0;
-	u32 nsmr;
+	struct resource *r;
 
-	ret = device_move(&pdev->dev, &msm_iommu_root_dev->dev, DPM_ORDER_NONE);
+	drvdata->dev = &pdev->dev;
+	msm_iommu_add_drv(drvdata);
+
+	ret = msm_iommu_parse_bfb_settings(pdev, drvdata);
 	if (ret)
 		goto fail;
 
-	ret = of_property_read_u32(pdev->dev.of_node, "qcom,iommu-smt-size",
-				   &nsmr);
-	if (ret)
-		goto fail;
-
-	if (nsmr > MAX_NUM_SMR) {
-		pr_err("Invalid SMT size: %d\n", nsmr);
-		ret = -EINVAL;
-		goto fail;
-	}
-
-	drvdata->nsmr = nsmr;
 	for_each_child_of_node(pdev->dev.of_node, child) {
 		drvdata->ncb++;
 		if (!of_platform_device_create(child, NULL, &pdev->dev))
 			pr_err("Failed to create %s device\n", child->name);
 	}
 
-	drvdata->name = dev_name(&pdev->dev);
+	drvdata->asid = devm_kzalloc(&pdev->dev, drvdata->ncb * sizeof(int),
+				     GFP_KERNEL);
+
+	if (!drvdata->asid) {
+		pr_err("Unable to get memory for asid array\n");
+		ret = -ENOMEM;
+		goto fail;
+	}
+
+	ret = of_property_read_string(pdev->dev.of_node, "label",
+				      &drvdata->name);
+	if (ret)
+		goto fail;
+
+	drvdata->sec_id = -1;
+	of_property_read_u32(pdev->dev.of_node, "qcom,iommu-secure-id",
+				&drvdata->sec_id);
+
+	r = platform_get_resource_byname(pdev, IORESOURCE_MEM, "clk_base");
+	if (r) {
+		drvdata->clk_reg_virt = devm_ioremap(&pdev->dev, r->start,
+						     resource_size(r));
+		if (!drvdata->clk_reg_virt) {
+			pr_err("Failed to map resource for iommu clk: %pr\n",
+				r);
+			ret = -ENOMEM;
+			goto fail;
+		}
+	}
+
+	drvdata->halt_enabled = of_property_read_bool(pdev->dev.of_node,
+						      "qcom,iommu-enable-halt");
+
+	return 0;
 fail:
 	return ret;
 }
 
-static atomic_t msm_iommu_next_id = ATOMIC_INIT(-1);
+static int msm_iommu_pmon_parse_dt(struct platform_device *pdev,
+					struct iommu_pmon *pmon_info)
+{
+	int ret = 0;
+	int irq = platform_get_irq(pdev, 0);
+	unsigned int cls_prop_size;
+
+	if (irq > 0) {
+		pmon_info->iommu.evt_irq = platform_get_irq(pdev, 0);
+
+		ret = of_property_read_u32(pdev->dev.of_node,
+					   "qcom,iommu-pmu-ngroups",
+					   &pmon_info->num_groups);
+		if (ret) {
+			pr_err("Error reading qcom,iommu-pmu-ngroups\n");
+			goto fail;
+		}
+		ret = of_property_read_u32(pdev->dev.of_node,
+					   "qcom,iommu-pmu-ncounters",
+					   &pmon_info->num_counters);
+		if (ret) {
+			pr_err("Error reading qcom,iommu-pmu-ncounters\n");
+			goto fail;
+		}
+
+		if (!of_get_property(pdev->dev.of_node,
+				     "qcom,iommu-pmu-event-classes",
+				     &cls_prop_size)) {
+			pr_err("Error reading qcom,iommu-pmu-event-classes\n");
+			return -EINVAL;
+		}
+
+		pmon_info->event_cls_supported =
+			   devm_kzalloc(&pdev->dev, cls_prop_size, GFP_KERNEL);
+
+		if (!pmon_info->event_cls_supported) {
+			pr_err("Unable to get memory for event class array\n");
+			return -ENOMEM;
+		}
+
+		pmon_info->nevent_cls_supported = cls_prop_size / sizeof(u32);
+
+		ret = of_property_read_u32_array(pdev->dev.of_node,
+					"qcom,iommu-pmu-event-classes",
+					pmon_info->event_cls_supported,
+					pmon_info->nevent_cls_supported);
+		if (ret) {
+			pr_err("Error reading qcom,iommu-pmu-event-classes\n");
+			return ret;
+		}
+	} else {
+		pmon_info->iommu.evt_irq = -1;
+		ret = irq;
+	}
+
+fail:
+	return ret;
+}
 
 static int __devinit msm_iommu_probe(struct platform_device *pdev)
 {
+	struct iommu_pmon *pmon_info;
 	struct msm_iommu_drvdata *drvdata;
 	struct resource *r;
 	int ret, needs_alt_core_clk;
-
-	if (msm_iommu_root_dev == pdev)
-		return 0;
-
-	if (pdev->id == -1)
-		pdev->id = atomic_inc_return(&msm_iommu_next_id) - 1;
 
 	drvdata = devm_kzalloc(&pdev->dev, sizeof(*drvdata), GFP_KERNEL);
 	if (!drvdata)
 		return -ENOMEM;
 
-	r = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	r = platform_get_resource_byname(pdev, IORESOURCE_MEM, "iommu_base");
 	if (!r)
 		return -EINVAL;
 
@@ -89,9 +220,15 @@ static int __devinit msm_iommu_probe(struct platform_device *pdev)
 	if (!drvdata->base)
 		return -ENOMEM;
 
+	drvdata->glb_base = drvdata->base;
+
 	drvdata->gdsc = devm_regulator_get(&pdev->dev, "vdd");
 	if (IS_ERR(drvdata->gdsc))
 		return -EINVAL;
+
+	drvdata->alt_gdsc = devm_regulator_get(&pdev->dev, "qcom,alt-vdd");
+	if (IS_ERR(drvdata->alt_gdsc))
+		drvdata->alt_gdsc = NULL;
 
 	drvdata->pclk = devm_clk_get(&pdev->dev, "iface_clk");
 	if (IS_ERR(drvdata->pclk))
@@ -110,12 +247,12 @@ static int __devinit msm_iommu_probe(struct platform_device *pdev)
 	}
 
 	if (clk_get_rate(drvdata->clk) == 0) {
-		ret = clk_round_rate(drvdata->clk, 1);
+		ret = clk_round_rate(drvdata->clk, 1000);
 		clk_set_rate(drvdata->clk, ret);
 	}
 
 	if (drvdata->aclk && clk_get_rate(drvdata->aclk) == 0) {
-		ret = clk_round_rate(drvdata->aclk, 1);
+		ret = clk_round_rate(drvdata->aclk, 1000);
 		clk_set_rate(drvdata->aclk, ret);
 	}
 
@@ -123,11 +260,35 @@ static int __devinit msm_iommu_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
-	pr_info("device %s mapped at %p, with %d ctx banks\n",
+	dev_info(&pdev->dev, "device %s mapped at %p, with %d ctx banks\n",
 		drvdata->name, drvdata->base, drvdata->ncb);
 
 	platform_set_drvdata(pdev, drvdata);
 
+	msm_iommu_sec_set_access_ops(&iommu_access_ops_v1);
+
+	pmon_info = msm_iommu_pm_alloc(&pdev->dev);
+	if (pmon_info != NULL) {
+		ret = msm_iommu_pmon_parse_dt(pdev, pmon_info);
+		if (ret) {
+			msm_iommu_pm_free(&pdev->dev);
+			pr_info("%s: pmon not available.\n", drvdata->name);
+		} else {
+			pmon_info->iommu.base = drvdata->base;
+			pmon_info->iommu.ops = &iommu_access_ops_v1;
+			pmon_info->iommu.hw_ops = iommu_pm_get_hw_ops_v1();
+			pmon_info->iommu.iommu_name = drvdata->name;
+			ret = msm_iommu_pm_iommu_register(pmon_info);
+			if (ret) {
+				pr_err("%s iommu register fail\n",
+								drvdata->name);
+				msm_iommu_pm_free(&pdev->dev);
+			} else {
+				pr_debug("%s iommu registered for pmon\n",
+						pmon_info->iommu.iommu_name);
+			}
+		}
+	}
 	return 0;
 }
 
@@ -135,8 +296,12 @@ static int __devexit msm_iommu_remove(struct platform_device *pdev)
 {
 	struct msm_iommu_drvdata *drv = NULL;
 
+	msm_iommu_pm_iommu_unregister(&pdev->dev);
+	msm_iommu_pm_free(&pdev->dev);
+
 	drv = platform_get_drvdata(pdev);
 	if (drv) {
+		msm_iommu_remove_drv(drv);
 		if (drv->clk)
 			clk_put(drv->clk);
 		clk_put(drv->pclk);
@@ -152,15 +317,21 @@ static int msm_iommu_ctx_parse_dt(struct platform_device *pdev,
 	int irq, ret;
 	u32 nsid;
 
-	irq = platform_get_irq(pdev, 0);
-	if (irq > 0) {
-		ret = request_threaded_irq(irq, NULL,
-				msm_iommu_fault_handler_v2,
-				IRQF_ONESHOT | IRQF_SHARED,
-				"msm_iommu_nonsecure_irq", pdev);
-		if (ret) {
-			pr_err("Request IRQ %d failed with ret=%d\n", irq, ret);
-			return ret;
+	ctx_drvdata->secure_context = of_property_read_bool(pdev->dev.of_node,
+							"qcom,secure-context");
+
+	if (!ctx_drvdata->secure_context) {
+		irq = platform_get_irq(pdev, 0);
+		if (irq > 0) {
+			ret = request_threaded_irq(irq, NULL,
+					msm_iommu_fault_handler_v2,
+					IRQF_ONESHOT | IRQF_SHARED,
+					"msm_iommu_nonsecure_irq", pdev);
+			if (ret) {
+				pr_err("Request IRQ %d failed with ret=%d\n",
+					irq, ret);
+				return ret;
+			}
 		}
 	}
 
@@ -196,6 +367,7 @@ static int msm_iommu_ctx_parse_dt(struct platform_device *pdev,
 	}
 	ctx_drvdata->nsid = nsid;
 
+	ctx_drvdata->asid = -1;
 	return 0;
 }
 
@@ -231,13 +403,13 @@ static int __devexit msm_iommu_ctx_remove(struct platform_device *pdev)
 }
 
 static struct of_device_id msm_iommu_match_table[] = {
-	{ .compatible = "qcom,msm-smmu-v2", },
+	{ .compatible = "qcom,msm-smmu-v1", },
 	{}
 };
 
 static struct platform_driver msm_iommu_driver = {
 	.driver = {
-		.name	= "msm_iommu_v2",
+		.name	= "msm_iommu_v1",
 		.of_match_table = msm_iommu_match_table,
 	},
 	.probe		= msm_iommu_probe,
@@ -251,7 +423,7 @@ static struct of_device_id msm_iommu_ctx_match_table[] = {
 
 static struct platform_driver msm_iommu_ctx_driver = {
 	.driver = {
-		.name	= "msm_iommu_ctx_v2",
+		.name	= "msm_iommu_ctx_v1",
 		.of_match_table = msm_iommu_ctx_match_table,
 	},
 	.probe		= msm_iommu_ctx_probe,
@@ -260,24 +432,7 @@ static struct platform_driver msm_iommu_ctx_driver = {
 
 static int __init msm_iommu_driver_init(void)
 {
-	struct device_node *node;
 	int ret;
-
-	node = of_find_compatible_node(NULL, NULL, "qcom,msm-smmu-v2");
-	if (!node)
-		return -ENODEV;
-
-	of_node_put(node);
-
-	msm_iommu_root_dev = platform_device_register_simple(
-						"msm_iommu", -1, 0, 0);
-	if (!msm_iommu_root_dev) {
-		pr_err("Failed to create root IOMMU device\n");
-		ret = -ENODEV;
-		goto error;
-	}
-
-	atomic_inc(&msm_iommu_next_id);
 
 	ret = platform_driver_register(&msm_iommu_driver);
 	if (ret != 0) {
@@ -299,7 +454,6 @@ static void __exit msm_iommu_driver_exit(void)
 {
 	platform_driver_unregister(&msm_iommu_ctx_driver);
 	platform_driver_unregister(&msm_iommu_driver);
-	platform_device_unregister(msm_iommu_root_dev);
 }
 
 subsys_initcall(msm_iommu_driver_init);

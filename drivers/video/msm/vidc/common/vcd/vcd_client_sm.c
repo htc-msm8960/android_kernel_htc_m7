@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2010-2013, Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -964,6 +964,12 @@ static void vcd_clnt_cb_in_run
 			vcd_handle_ind_info_output_reconfig(cctxt, status);
 			break;
 		}
+	case VCD_EVT_IND_INFO_LTRUSE_FAILED:
+		{
+			rc = vcd_handle_ltr_use_failed(cctxt,
+					payload, sz, status);
+			break;
+		}
 	default:
 		{
 			VCD_MSG_ERROR
@@ -1622,6 +1628,7 @@ void vcd_do_client_state_transition(struct vcd_clnt_ctxt *cctxt,
 	if (!cctxt || to_state >= VCD_CLIENT_STATE_MAX) {
 		VCD_MSG_ERROR("Bad parameters. cctxt=%p, to_state=%d",
 			      cctxt, to_state);
+		return;
 	}
 
 	state_ctxt = &cctxt->clnt_state;
@@ -1744,7 +1751,7 @@ static const struct vcd_clnt_state_table vcd_clnt_table_flushing = {
 	 vcd_get_buffer_requirements_cmn,
 	 NULL,
 	 NULL,
-	 NULL,
+	 vcd_free_buffer_cmn,
 	 vcd_fill_output_buffer_cmn,
 	 vcd_clnt_cb_in_flushing,
 	 },

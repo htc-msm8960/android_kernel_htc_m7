@@ -1,4 +1,4 @@
-/* Copyright (c) 2012, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -17,8 +17,6 @@
 #include "mdss_mdp.h"
 #include "mdss_mdp_rotator.h"
 
-#define ROT_BLK_SIZE	128
-
 enum mdss_mdp_writeback_type {
 	MDSS_MDP_WRITEBACK_TYPE_ROTATOR,
 	MDSS_MDP_WRITEBACK_TYPE_LINE,
@@ -27,6 +25,7 @@ enum mdss_mdp_writeback_type {
 
 struct mdss_mdp_writeback_ctx {
 	u32 wb_num;
+	char __iomem *base;
 	u8 ref_cnt;
 	u8 type;
 
@@ -38,7 +37,7 @@ struct mdss_mdp_writeback_ctx {
 	u16 width;
 	u16 height;
 	u8 rot90;
-
+	u32 bwc_mode;
 	int initialized;
 
 	struct mdss_mdp_plane_sizes dst_planes;
@@ -75,25 +74,33 @@ static struct mdss_mdp_writeback_ctx wb_ctx_list[MDSS_MDP_MAX_WRITEBACK] = {
 	},
 };
 
+static inline void mdp_wb_write(struct mdss_mdp_writeback_ctx *ctx,
+				u32 reg, u32 val)
+{
+	writel_relaxed(val, ctx->base + reg);
+}
+
 static int mdss_mdp_writeback_addr_setup(struct mdss_mdp_writeback_ctx *ctx,
 					 struct mdss_mdp_data *data)
 {
-	int off, ret;
+	int ret;
 
 	if (!data)
 		return -EINVAL;
 
 	pr_debug("wb_num=%d addr=0x%x\n", ctx->wb_num, data->p[0].addr);
 
+	if (ctx->bwc_mode)
+		data->bwc_enabled = 1;
+
 	ret = mdss_mdp_data_check(data, &ctx->dst_planes);
 	if (ret)
 		return ret;
 
-	off = MDSS_MDP_REG_WB_OFFSET(ctx->wb_num);
-	MDSS_MDP_REG_WRITE(off + MDSS_MDP_REG_WB_DST0_ADDR, data->p[0].addr);
-	MDSS_MDP_REG_WRITE(off + MDSS_MDP_REG_WB_DST1_ADDR, data->p[1].addr);
-	MDSS_MDP_REG_WRITE(off + MDSS_MDP_REG_WB_DST2_ADDR, data->p[2].addr);
-	MDSS_MDP_REG_WRITE(off + MDSS_MDP_REG_WB_DST3_ADDR, data->p[3].addr);
+	mdp_wb_write(ctx, MDSS_MDP_REG_WB_DST0_ADDR, data->p[0].addr);
+	mdp_wb_write(ctx, MDSS_MDP_REG_WB_DST1_ADDR, data->p[1].addr);
+	mdp_wb_write(ctx, MDSS_MDP_REG_WB_DST2_ADDR, data->p[2].addr);
+	mdp_wb_write(ctx, MDSS_MDP_REG_WB_DST3_ADDR, data->p[3].addr);
 
 	return 0;
 }
@@ -102,13 +109,14 @@ static int mdss_mdp_writeback_format_setup(struct mdss_mdp_writeback_ctx *ctx)
 {
 	struct mdss_mdp_format_params *fmt;
 	u32 dst_format, pattern, ystride0, ystride1, outsize, chroma_samp;
-	int off;
 	u32 opmode = ctx->opmode;
+	struct mdss_data_type *mdata;
 
 	pr_debug("wb_num=%d format=%d\n", ctx->wb_num, ctx->format);
 
 	mdss_mdp_get_plane_sizes(ctx->format, ctx->width, ctx->height,
-				 &ctx->dst_planes);
+				 &ctx->dst_planes,
+				 ctx->opmode & MDSS_MDP_OP_BWC_EN);
 
 	fmt = mdss_mdp_get_format_params(ctx->format);
 	if (!fmt) {
@@ -145,20 +153,38 @@ static int mdss_mdp_writeback_format_setup(struct mdss_mdp_writeback_ctx *ctx)
 
 	dst_format = (chroma_samp << 23) |
 		     (fmt->fetch_planes << 19) |
-		     (fmt->unpack_align_msb << 18) |
-		     (fmt->unpack_tight << 17) |
-		     (fmt->unpack_count << 12) |
-		     (fmt->bpp << 9) |
-		     (fmt->alpha_enable << 8) |
-		     (fmt->a_bit << 6) |
-		     (fmt->r_bit << 4) |
-		     (fmt->b_bit << 2) |
-		     (fmt->g_bit << 0);
+		     (fmt->bits[C3_ALPHA] << 6) |
+		     (fmt->bits[C2_R_Cr] << 4) |
+		     (fmt->bits[C1_B_Cb] << 2) |
+		     (fmt->bits[C0_G_Y] << 0);
 
-	pattern = (fmt->element3 << 24) |
-		  (fmt->element2 << 15) |
-		  (fmt->element1 << 8) |
-		  (fmt->element0 << 0);
+	if (fmt->bits[C3_ALPHA] || fmt->alpha_enable) {
+		dst_format |= BIT(8); /* DSTC3_EN */
+		if (!fmt->alpha_enable)
+			dst_format |= BIT(14); /* DST_ALPHA_X */
+	}
+
+	if (fmt->fetch_planes != MDSS_MDP_PLANE_PLANAR) {
+		mdata = mdss_mdp_get_mdata();
+		if (mdata && mdata->mdp_rev >= MDSS_MDP_HW_REV_102) {
+			pattern = (fmt->element[3] << 24) |
+				  (fmt->element[2] << 16) |
+				  (fmt->element[1] << 8)  |
+				  (fmt->element[0] << 0);
+		} else {
+			pattern = (fmt->element[3] << 24) |
+				  (fmt->element[2] << 15) |
+				  (fmt->element[1] << 8)  |
+				  (fmt->element[0] << 0);
+		}
+
+		dst_format |= (fmt->unpack_align_msb << 18) |
+			      (fmt->unpack_tight << 17) |
+			      ((fmt->unpack_count - 1) << 12) |
+			      ((fmt->bpp - 1) << 9);
+	} else {
+		pattern = 0;
+	}
 
 	ystride0 = (ctx->dst_planes.ystride[0]) |
 		   (ctx->dst_planes.ystride[1] << 16);
@@ -166,13 +192,12 @@ static int mdss_mdp_writeback_format_setup(struct mdss_mdp_writeback_ctx *ctx)
 		   (ctx->dst_planes.ystride[3] << 16);
 	outsize = (ctx->height << 16) | ctx->width;
 
-	off = MDSS_MDP_REG_WB_OFFSET(ctx->wb_num);
-	MDSS_MDP_REG_WRITE(off + MDSS_MDP_REG_WB_DST_FORMAT, dst_format);
-	MDSS_MDP_REG_WRITE(off + MDSS_MDP_REG_WB_DST_OP_MODE, opmode);
-	MDSS_MDP_REG_WRITE(off + MDSS_MDP_REG_WB_DST_PACK_PATTERN, pattern);
-	MDSS_MDP_REG_WRITE(off + MDSS_MDP_REG_WB_DST_YSTRIDE0, ystride0);
-	MDSS_MDP_REG_WRITE(off + MDSS_MDP_REG_WB_DST_YSTRIDE1, ystride1);
-	MDSS_MDP_REG_WRITE(off + MDSS_MDP_REG_WB_OUT_SIZE, outsize);
+	mdp_wb_write(ctx, MDSS_MDP_REG_WB_DST_FORMAT, dst_format);
+	mdp_wb_write(ctx, MDSS_MDP_REG_WB_DST_OP_MODE, opmode);
+	mdp_wb_write(ctx, MDSS_MDP_REG_WB_DST_PACK_PATTERN, pattern);
+	mdp_wb_write(ctx, MDSS_MDP_REG_WB_DST_YSTRIDE0, ystride0);
+	mdp_wb_write(ctx, MDSS_MDP_REG_WB_DST_YSTRIDE1, ystride1);
+	mdp_wb_write(ctx, MDSS_MDP_REG_WB_OUT_SIZE, outsize);
 
 	return 0;
 }
@@ -228,26 +253,30 @@ static int mdss_mdp_writeback_prepare_rot(struct mdss_mdp_ctl *ctl, void *arg)
 	pr_debug("rot setup wb_num=%d\n", ctx->wb_num);
 
 	ctx->opmode = BIT(6); /* ROT EN */
-	if (ROT_BLK_SIZE == 128)
+	if (ctl->mdata->rot_block_size == 128)
 		ctx->opmode |= BIT(4); /* block size 128 */
 
-	ctx->opmode |= rot->bwc_mode;
+	ctx->bwc_mode = rot->bwc_mode;
+	ctx->opmode |= ctx->bwc_mode;
 
 	ctx->width = rot->src_rect.w;
 	ctx->height = rot->src_rect.h;
 
 	ctx->format = rot->format;
 
-	ctx->rot90 = !!(rot->rotations & MDP_ROT_90);
+	ctx->rot90 = !!(rot->flags & MDP_ROT_90);
+
+	if (ctx->bwc_mode || ctx->rot90)
+		ctx->format = mdss_mdp_get_rotator_dst_format(rot->format);
+	else
+		ctx->format = rot->format;
+
 	if (ctx->rot90) {
 		ctx->opmode |= BIT(5); /* ROT 90 */
 		swap(ctx->width, ctx->height);
 	}
 
-	if (mdss_mdp_writeback_format_setup(ctx))
-		return -EINVAL;
-
-	return 0;
+	return mdss_mdp_writeback_format_setup(ctx);
 }
 
 static int mdss_mdp_writeback_stop(struct mdss_mdp_ctl *ctl)
@@ -258,6 +287,9 @@ static int mdss_mdp_writeback_stop(struct mdss_mdp_ctl *ctl)
 
 	ctx = (struct mdss_mdp_writeback_ctx *) ctl->priv_data;
 	if (ctx) {
+		mdss_mdp_set_intr_callback(ctx->intr_type, ctx->intf_num,
+				   NULL, NULL);
+
 		ctl->priv_data = NULL;
 		ctx->ref_cnt--;
 	}
@@ -311,8 +343,6 @@ static int mdss_mdp_writeback_display(struct mdss_mdp_ctl *ctl, void *arg)
 	flush_bits = BIT(16); /* WB */
 	mdss_mdp_ctl_write(ctl, MDSS_MDP_REG_CTL_FLUSH, flush_bits);
 
-	mdss_mdp_set_intr_callback(ctx->intr_type, ctx->intf_num,
-				   mdss_mdp_writeback_intr_done, ctx);
 	mdss_mdp_irq_enable(ctx->intr_type, ctx->intf_num);
 
 	mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_ON, false);
@@ -344,7 +374,11 @@ int mdss_mdp_writeback_start(struct mdss_mdp_ctl *ctl)
 	}
 	ctl->priv_data = ctx;
 	ctx->wb_num = ctl->num;	/* wb num should match ctl num */
+	ctx->base = ctl->wb_base;
 	ctx->initialized = false;
+
+	mdss_mdp_set_intr_callback(ctx->intr_type, ctx->intf_num,
+				   mdss_mdp_writeback_intr_done, ctx);
 
 	if (ctx->type == MDSS_MDP_WRITEBACK_TYPE_ROTATOR)
 		ctl->prepare_fnc = mdss_mdp_writeback_prepare_rot;

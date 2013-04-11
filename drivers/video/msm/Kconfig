@@ -10,6 +10,8 @@ config FB_MSM
 	select FB_CFB_FILLRECT
 	select FB_CFB_COPYAREA
 	select FB_CFB_IMAGEBLIT
+	select SYNC
+	select SW_SYNC
 	---help---
 	  Support for MSM Framebuffer.
 
@@ -38,6 +40,9 @@ config FB_MSM_TRIPLE_BUFFER
 config FB_MSM_MDP_HW
 	bool
 	default n
+
+config FB_MSM_MDSS_COMMON
+	bool
 
 choice
 	prompt "MDP HW version"
@@ -86,6 +91,7 @@ config FB_MSM_MDP40
 
 config FB_MSM_MDSS
 	bool "MDSS HW"
+	select FB_MSM_MDSS_COMMON
 	---help---
 	The Mobile Display Sub System (MDSS) driver supports devices which
 	contain MDSS hardware block.
@@ -100,6 +106,10 @@ config FB_MSM_MDP_NONE
 	  Say Y here if this is mdm platform.
 
 endchoice
+
+config FB_MSM_QPIC
+	bool
+	select FB_MSM_MDSS_COMMON
 
 config FB_MSM_EBI2
 	bool
@@ -122,7 +132,7 @@ config FB_MSM_LVDS
 	default n
 
 config FB_MSM_OVERLAY
-	depends on FB_MSM_MDP40 && ANDROID_PMEM
+	depends on FB_MSM_MDP40
 	bool "MDP4 overlay support"
 	default n
 
@@ -175,11 +185,6 @@ config FB_MSM_LCDC_PANEL
 	default n
 
 config FB_MSM_MIPI_DSI_TOSHIBA
-	bool
-	select FB_MSM_MIPI_DSI
-	default n
-
-config FB_MSM_MIPI_DSI_LGIT
 	bool
 	select FB_MSM_MIPI_DSI
 	default n
@@ -307,12 +312,12 @@ config FB_MSM_LCDC_WXGA
 	select FB_MSM_LCDC_PANEL
 	default n
 
-config FB_MSM_MIPI_LGIT_VIDEO_WXGA_PT
+config FB_MSM_LVDS_CHIMEI_WXGA
 	bool
-	select FB_MSM_MIPI_DSI_LGIT
+	select FB_MSM_LVDS
 	default n
 
-config FB_MSM_LVDS_CHIMEI_WXGA
+config FB_MSM_LVDS_FRC_FHD
 	bool
 	select FB_MSM_LVDS
 	default n
@@ -655,10 +660,6 @@ config FB_MSM_MDDI_SHARP_QVGA_128x128
 	---help---
 	  Support for MDDI Sharp QVGA (240x320) and 128x128 dual panel
 
-config FB_MSM_MIPI_LGIT_VIDEO_WXGA_PT_PANEL
-	bool "MIPI LG Display WXGA PT Panel"
-	select FB_MSM_MIPI_LGIT_VIDEO_WXGA_PT
-
 config FB_MSM_MIPI_TOSHIBA_VIDEO_WVGA_PT_PANEL
 	bool "MIPI Toshiba WVGA PT Panel"
 	select FB_MSM_MIPI_TOSHIBA_VIDEO_WVGA_PT
@@ -744,14 +745,6 @@ config FB_MSM_PANEL_NONE
 	---help---
 	  This will disable LCD panel
 endchoice
-
-config LGIT_VIDEO_WXGA_CABC
-	bool "Content Adaptive Backlight Control on LGIT WXGA Panel"
-	default y
-	depends on FB_MSM_MIPI_LGIT_VIDEO_WXGA_PT_PANEL
-	help
-	  Enable CABC(Content Apaptive Backlight Control) on LGIT Panel
-	  to reduce power consumption
 
 choice
 	prompt "Secondary LCD Panel"
@@ -964,6 +957,21 @@ config FB_MSM_EBI2_PANEL_DETECT
 	default n
 	---help---
 	  Support for EBI2 panel auto detect
+
+config FB_MSM_QPIC_ILI_QVGA_PANEL
+	bool "Qpic MIPI ILI QVGA Panel"
+	select FB_MSM_QPIC
+	---help---
+	  Support for MIPI ILI QVGA (240x320) panel
+	  ILI TECHNOLOGY 9341
+	  with on-chip full display RAM
+	  use parallel interface
+
+config FB_MSM_QPIC_PANEL_DETECT
+	bool "Qpic Panel Detect"
+	select FB_MSM_QPIC_ILI_QVGA_PANEL
+	---help---
+	  Support for Qpic panel auto detect
 
 if FB_MSM_MDSS
 	source "drivers/video/msm/mdss/Kconfig"

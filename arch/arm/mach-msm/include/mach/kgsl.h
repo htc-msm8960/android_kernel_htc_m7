@@ -1,4 +1,4 @@
-/* Copyright (c) 2012, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -21,12 +21,13 @@
 #define KGSL_CLK_MEM_IFACE 0x00000010
 #define KGSL_CLK_AXI	0x00000020
 
-#define KGSL_MAX_PWRLEVELS 5
+#define KGSL_MAX_PWRLEVELS 10
 
 #define KGSL_CONVERT_TO_MBPS(val) \
 	(val*1000*1000U)
 
 #define KGSL_3D0_REG_MEMORY	"kgsl_3d0_reg_memory"
+#define KGSL_3D0_SHADER_MEMORY	"kgsl_3d0_shader_memory"
 #define KGSL_3D0_IRQ		"kgsl_3d0_irq"
 #define KGSL_2D0_REG_MEMORY	"kgsl_2d0_reg_memory"
 #define KGSL_2D0_IRQ		"kgsl_2d0_irq"
@@ -72,6 +73,7 @@ struct kgsl_device_platform_data {
 	unsigned int nap_allowed;
 	unsigned int clk_map;
 	unsigned int idle_needed;
+	unsigned int step_mul;
 	struct msm_bus_scale_pdata *bus_scale_table;
 	struct kgsl_device_iommu_data *iommu_data;
 	int iommu_count;

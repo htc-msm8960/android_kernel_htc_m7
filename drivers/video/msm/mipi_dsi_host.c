@@ -1,5 +1,5 @@
 
-/* Copyright (c) 2008-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2008-2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -24,7 +24,6 @@
 #include <linux/semaphore.h>
 #include <linux/uaccess.h>
 #include <linux/clk.h>
-#include <linux/iopoll.h>
 #include <linux/platform_device.h>
 #include <linux/iopoll.h>
 
@@ -43,7 +42,6 @@
 
 static struct completion dsi_dma_comp;
 static struct completion dsi_mdp_comp;
-static struct completion dsi_video_comp;
 static struct dsi_buf dsi_tx_buf;
 static struct dsi_buf dsi_rx_buf;
 static spinlock_t dsi_irq_lock;
@@ -96,7 +94,6 @@ void mipi_dsi_init(void)
 {
 	init_completion(&dsi_dma_comp);
 	init_completion(&dsi_mdp_comp);
-	init_completion(&dsi_video_comp);
 	mipi_dsi_buf_alloc(&dsi_tx_buf, DSI_BUF_SIZE);
 	mipi_dsi_buf_alloc(&dsi_rx_buf, DSI_BUF_SIZE);
 	spin_lock_init(&dsi_irq_lock);
@@ -1016,8 +1013,7 @@ void mipi_dsi_op_mode_config(int mode)
 	dsi_ctrl &= ~0x07;
 	if (mode == DSI_VIDEO_MODE) {
 		dsi_ctrl |= 0x03;
-		intr_ctrl = (DSI_INTR_CMD_DMA_DONE_MASK |
-					DSI_INTR_VIDEO_DONE_MASK);
+		intr_ctrl = DSI_INTR_CMD_DMA_DONE_MASK;
 	} else {		/* command mode */
 		dsi_ctrl |= 0x05;
 		intr_ctrl = DSI_INTR_CMD_DMA_DONE_MASK | DSI_INTR_ERROR_MASK |
@@ -1029,20 +1025,6 @@ void mipi_dsi_op_mode_config(int mode)
 	MIPI_OUTP(MIPI_DSI_BASE + 0x010c, intr_ctrl); /* DSI_INTL_CTRL */
 	MIPI_OUTP(MIPI_DSI_BASE + 0x0000, dsi_ctrl);
 	wmb();
-}
-
-
-void mipi_dsi_wait4video_done(void)
-{
-	unsigned long flag;
-
-	spin_lock_irqsave(&dsi_mdp_lock, flag);
-	INIT_COMPLETION(dsi_video_comp);
-	mipi_dsi_enable_irq(DSI_VIDEO_TERM);
-	spin_unlock_irqrestore(&dsi_mdp_lock, flag);
-
-	wait_for_completion_timeout(&dsi_video_comp,
-					msecs_to_jiffies(VSYNC_PERIOD * 4));
 }
 
 void mipi_dsi_mdp_busy_wait(void)
@@ -1148,11 +1130,15 @@ int mipi_dsi_cmd_reg_tx(uint32 data)
 	return 4;
 }
 
+static int mipi_dsi_cmd_dma_tx(struct dsi_buf *tp);
+static int mipi_dsi_cmd_dma_rx(struct dsi_buf *rp, int rlen);
+
 /*
  * mipi_dsi_cmds_tx:
  * thread context only
  */
-int mipi_dsi_cmds_tx(struct dsi_buf *tp, struct dsi_cmd_desc *cmds, int cnt)
+static int mipi_dsi_cmds_tx(struct dsi_buf *tp,
+			struct dsi_cmd_desc *cmds, int cnt)
 {
 	struct dsi_cmd_desc *cm;
 	uint32 dsi_ctrl, ctrl;
@@ -1205,122 +1191,8 @@ static struct dsi_cmd_desc pkt_size_cmd[] = {
  * len should be either 4 or 8
  * any return data more than MIPI_DSI_LEN need to be break down
  * to multiple transactions.
- *
- * ov_mutex need to be acquired before call this function.
  */
-int mipi_dsi_cmds_rx(struct msm_fb_data_type *mfd,
-			struct dsi_buf *tp, struct dsi_buf *rp,
-			struct dsi_cmd_desc *cmds, int rlen)
-{
-	int cnt, len, diff, pkt_size;
-	char cmd;
-
-	if (mfd->panel_info.mipi.no_max_pkt_size) {
-		/* Only support rlen = 4*n */
-		rlen += 3;
-		rlen &= ~0x03;
-	}
-
-	len = rlen;
-	diff = 0;
-
-	if (len <= 2)
-		cnt = 4;	/* short read */
-	else {
-		if (len > MIPI_DSI_LEN)
-			len = MIPI_DSI_LEN;	/* 8 bytes at most */
-
-		len = (len + 3) & ~0x03; /* len 4 bytes align */
-		diff = len - rlen;
-		/*
-		 * add extra 2 bytes to len to have overall
-		 * packet size is multipe by 4. This also make
-		 * sure 4 bytes dcs headerlocates within a
-		 * 32 bits register after shift in.
-		 * after all, len should be either 6 or 10.
-		 */
-		len += 2;
-		cnt = len + 6; /* 4 bytes header + 2 bytes crc */
-	}
-
-	if (mfd->panel_info.type == MIPI_CMD_PANEL) {
-		/* make sure mdp dma is not txing pixel data */
-#ifdef CONFIG_FB_MSM_MDP303
-			mdp3_dsi_cmd_dma_busy_wait(mfd);
-#endif
-	}
-
-	if (!mfd->panel_info.mipi.no_max_pkt_size) {
-		/* packet size need to be set at every read */
-		pkt_size = len;
-		max_pktsize[0] = pkt_size;
-		mipi_dsi_enable_irq(DSI_CMD_TERM);
-		mipi_dsi_buf_init(tp);
-		mipi_dsi_cmd_dma_add(tp, pkt_size_cmd);
-		mipi_dsi_cmd_dma_tx(tp);
-	}
-
-	mipi_dsi_enable_irq(DSI_CMD_TERM);
-	mipi_dsi_buf_init(tp);
-	mipi_dsi_cmd_dma_add(tp, cmds);
-
-	/* transmit read comamnd to client */
-	mipi_dsi_cmd_dma_tx(tp);
-
-	/*
-	 * once cmd_dma_done interrupt received,
-	 * return data from client is ready and stored
-	 * at RDBK_DATA register already
-	 */
-	mipi_dsi_buf_init(rp);
-	if (mfd->panel_info.mipi.no_max_pkt_size) {
-		/*
-		 * expect rlen = n * 4
-		 * short alignement for start addr
-		 */
-		rp->data += 2;
-	}
-
-	mipi_dsi_cmd_dma_rx(rp, cnt);
-
-	if (mfd->panel_info.mipi.no_max_pkt_size) {
-		/*
-		 * remove extra 2 bytes from previous
-		 * rx transaction at shift register
-		 * which was inserted during copy
-		 * shift registers to rx buffer
-		 * rx payload start from long alignment addr
-		 */
-		rp->data += 2;
-	}
-
-	cmd = rp->data[0];
-	switch (cmd) {
-	case DTYPE_ACK_ERR_RESP:
-		pr_debug("%s: rx ACK_ERR_PACLAGE\n", __func__);
-		break;
-	case DTYPE_GEN_READ1_RESP:
-	case DTYPE_DCS_READ1_RESP:
-		mipi_dsi_short_read1_resp(rp);
-		break;
-	case DTYPE_GEN_READ2_RESP:
-	case DTYPE_DCS_READ2_RESP:
-		mipi_dsi_short_read2_resp(rp);
-		break;
-	case DTYPE_GEN_LREAD_RESP:
-	case DTYPE_DCS_LREAD_RESP:
-		mipi_dsi_long_read_resp(rp);
-		rp->len -= 2; /* extra 2 bytes added */
-		rp->len -= diff; /* align bytes */
-		break;
-	default:
-		break;
-	}
-
-	return rp->len;
-}
-
-int mipi_dsi_cmds_rx_new(struct dsi_buf *tp, struct dsi_buf *rp,
+static int mipi_dsi_cmds_rx(struct dsi_buf *tp, struct dsi_buf *rp,
 			struct dcs_cmd_req *req, int rlen)
 {
 	struct dsi_cmd_desc *cmds;
@@ -1429,8 +1301,9 @@ int mipi_dsi_cmds_rx_new(struct dsi_buf *tp, struct dsi_buf *rp,
 	return rp->len;
 }
 
-int mipi_dsi_cmd_dma_tx(struct dsi_buf *tp)
+static int mipi_dsi_cmd_dma_tx(struct dsi_buf *tp)
 {
+
 	unsigned long flags;
 
 #ifdef DSI_HOST_DEBUG
@@ -1468,17 +1341,14 @@ int mipi_dsi_cmd_dma_tx(struct dsi_buf *tp)
 	wmb();
 	spin_unlock_irqrestore(&dsi_mdp_lock, flags);
 
-	if (!wait_for_completion_timeout(&dsi_dma_comp,
-					msecs_to_jiffies(200))) {
-		pr_err("%s: dma timeout error\n", __func__);
-	}
+	wait_for_completion(&dsi_dma_comp);
 
 	dma_unmap_single(&dsi_dev, tp->dmap, tp->len, DMA_TO_DEVICE);
 	tp->dmap = 0;
 	return tp->len;
 }
 
-int mipi_dsi_cmd_dma_rx(struct dsi_buf *rp, int rlen)
+static int mipi_dsi_cmd_dma_rx(struct dsi_buf *rp, int rlen)
 {
 	uint32 *lp, data;
 	int i, off, cnt;
@@ -1505,11 +1375,21 @@ int mipi_dsi_cmd_dma_rx(struct dsi_buf *rp, int rlen)
 	return rlen;
 }
 
-static void mipi_dsi_wait4video_eng_busy(void)
+static void mipi_dsi_wait_for_video_eng_busy(void)
 {
-	mipi_dsi_wait4video_done();
-	/* delay 4 ms to skip BLLP */
-	usleep(4000);
+	u32 status;
+	int sleep_us = 4000;
+
+	/*
+	 * if video mode engine was not busy (in BLLP)
+	 * wait to pass BLLP
+	 */
+
+	/* check for VIDEO_MODE_ENGINE_BUSY */
+	readl_poll((MIPI_DSI_BASE + 0x0004), /* DSI_STATUS */
+				status,
+				(status & 0x08),
+				sleep_us);
 }
 
 void mipi_dsi_cmd_mdp_busy(void)
@@ -1573,12 +1453,17 @@ void mipi_dsi_cmdlist_rx(struct dcs_cmd_req *req)
 	struct dsi_buf *rp;
 
 	mipi_dsi_buf_init(&dsi_tx_buf);
-	mipi_dsi_buf_init(&dsi_rx_buf);
 
 	tp = &dsi_tx_buf;
-	rp = &dsi_rx_buf;
 
-	len = mipi_dsi_cmds_rx_new(tp, rp, req, req->rlen);
+	if (req->rbuf)
+		rp = req->rbuf;
+	else
+		rp = &dsi_rx_buf;
+
+	mipi_dsi_buf_init(rp);
+
+	len = mipi_dsi_cmds_rx(tp, rp, req, req->rlen);
 	dp = (u32 *)rp->data;
 
 	if (req->cb)
@@ -1603,10 +1488,10 @@ void mipi_dsi_cmdlist_commit(int from_mdp)
 
 	dsi_ctrl = MIPI_INP(MIPI_DSI_BASE + 0x0000);
 	if (dsi_ctrl & 0x02) {
-		/* video mode, make sure video engine is busy
-		 * so dcs command will be sent at start of BLLP
+		/* video mode, make sure dsi_cmd_mdp is busy
+		 * so dcs command will be txed at start of BLLP
 		 */
-		mipi_dsi_wait4video_eng_busy();
+		mipi_dsi_wait_for_video_eng_busy();
 	} else {
 		/* command mode */
 		if (!from_mdp) { /* cmdlist_put */
@@ -1764,10 +1649,9 @@ irqreturn_t mipi_dsi_isr(int irq, void *ptr)
 	}
 
 	if (isr & DSI_INTR_VIDEO_DONE) {
-		spin_lock(&dsi_mdp_lock);
-		mipi_dsi_disable_irq_nosync(DSI_VIDEO_TERM);
-		complete(&dsi_video_comp);
-		spin_unlock(&dsi_mdp_lock);
+		/*
+		* do something  here
+		*/
 	}
 
 	if (isr & DSI_INTR_CMD_DMA_DONE) {

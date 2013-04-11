@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -13,7 +13,10 @@
 #ifndef _ARCH_IOMMU_DOMAINS_H
 #define _ARCH_IOMMU_DOMAINS_H
 
+#include <linux/errno.h>
 #include <linux/memory_alloc.h>
+
+#define MSM_IOMMU_DOMAIN_SECURE	0x1
 
 enum {
 	VIDEO_DOMAIN,
@@ -69,11 +72,15 @@ struct msm_iova_layout {
 	int npartitions;
 	const char *client_name;
 	unsigned int domain_flags;
+	unsigned int is_secure;
 };
 
 #if defined(CONFIG_MSM_IOMMU)
 
+extern void msm_iommu_set_client_name(struct iommu_domain *domain,
+				      char const *name);
 extern struct iommu_domain *msm_get_iommu_domain(int domain_num);
+extern int msm_find_domain_no(const struct iommu_domain *domain);
 
 extern int msm_allocate_iova_address(unsigned int iommu_domain,
 					unsigned int partition_no,
@@ -90,6 +97,7 @@ extern int msm_use_iommu(void);
 
 extern int msm_iommu_map_extra(struct iommu_domain *domain,
 						unsigned long start_iova,
+						phys_addr_t phys_addr,
 						unsigned long size,
 						unsigned long page_size,
 						int cached);
@@ -99,7 +107,7 @@ extern void msm_iommu_unmap_extra(struct iommu_domain *domain,
 						unsigned long size,
 						unsigned long page_size);
 
-extern int msm_iommu_map_contig_buffer(unsigned long phys,
+extern int msm_iommu_map_contig_buffer(phys_addr_t phys,
 				unsigned int domain_no,
 				unsigned int partition_no,
 				unsigned long size,
@@ -116,10 +124,19 @@ extern void msm_iommu_unmap_contig_buffer(unsigned long iova,
 extern int msm_register_domain(struct msm_iova_layout *layout);
 
 #else
+static inline void msm_iommu_set_client_name(struct iommu_domain *domain,
+					     char const *name)
+{
+}
+
 static inline struct iommu_domain
 	*msm_get_iommu_domain(int subsys_id) { return NULL; }
 
 
+static inline int msm_find_domain_no(const struct iommu_domain *domain)
+{
+	return -EINVAL;
+}
 
 static inline int msm_allocate_iova_address(unsigned int iommu_domain,
 					unsigned int partition_no,
@@ -139,6 +156,7 @@ static inline int msm_use_iommu(void)
 
 static inline int msm_iommu_map_extra(struct iommu_domain *domain,
 						unsigned long start_iova,
+						phys_addr_t phys_addr,
 						unsigned long size,
 						unsigned long page_size,
 						int cached)
@@ -153,7 +171,7 @@ static inline void msm_iommu_unmap_extra(struct iommu_domain *domain,
 {
 }
 
-static inline int msm_iommu_map_contig_buffer(unsigned long phys,
+static inline int msm_iommu_map_contig_buffer(phys_addr_t phys,
 				unsigned int domain_no,
 				unsigned int partition_no,
 				unsigned long size,

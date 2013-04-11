@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2010-2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -38,6 +38,10 @@ spinlock_t tz_lock;
  * per frame for 60fps content.
  */
 #define FLOOR			5000
+/* CEILING is 50msec, larger than any standard
+ * frame length, but less than the idle timer.
+ */
+#define CEILING			50000
 #define SWITCH_OFF		200
 #define SWITCH_OFF_RESET_TH	40
 #define SKIP_COUNTER		500
@@ -163,11 +167,24 @@ static void tz_idle(struct kgsl_device *device, struct kgsl_pwrscale *pwrscale)
 		priv->no_switch_cnt = 0;
 	}
 
-	idle = priv->bin.total_time - priv->bin.busy_time;
+	/* If there is an extended block of busy processing,
+	 * increase frequency.  Otherwise run the normal algorithm.
+	 */
+	if (priv->bin.busy_time > CEILING) {
+		val = -1;
+	} else {
+		idle = priv->bin.total_time - priv->bin.busy_time;
+		idle = (idle > 0) ? idle : 0;
+		val = __secure_tz_entry(TZ_UPDATE_ID, idle, device->id);
+	}
 	priv->bin.total_time = 0;
 	priv->bin.busy_time = 0;
-	idle = (idle > 0) ? idle : 0;
-	val = __secure_tz_entry(TZ_UPDATE_ID, idle, device->id);
+
+	/* If the decision is to move to a lower level, make sure the GPU
+	 * frequency drops.
+	 */
+	if (val > 0)
+		val *= pwr->step_mul;
 	if (val)
 		kgsl_pwrctrl_pwrlevel_change(device,
 					     pwr->active_pwrlevel + val);

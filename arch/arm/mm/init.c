@@ -97,8 +97,8 @@ void show_mem(unsigned int filter)
 	int free = 0, total = 0, reserved = 0;
 	int shared = 0, cached = 0, slab = 0, i;
 	struct meminfo * mi = &meminfo;
-	unsigned long kgsl_alloc = kgsl_get_alloc_size(0);
-	int ion_alloc = ion_iommu_heap_dump_size();
+	unsigned long kgsl_alloc = 0;
+	int ion_alloc = 0;
 
 	printk("Mem-info:\n");
 	show_free_areas(filter);
