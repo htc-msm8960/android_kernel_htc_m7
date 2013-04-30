@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2010-2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -312,6 +312,11 @@ static struct resource msm_iommu_vcap_resources[] = {
 	},
 };
 
+static struct platform_device msm_root_iommu_dev = {
+	.name = "msm_iommu",
+	.id = -1,
+};
+
 static struct msm_iommu_dev jpegd_iommu = {
 	.name = "jpegd",
 	.ncb = 2,
@@ -360,25 +365,25 @@ static struct msm_iommu_dev vcodec_b_iommu = {
 static struct msm_iommu_dev gfx3d_iommu = {
 	.name = "gfx3d",
 	.ncb = 3,
-	.ttbr_split = 0,
+	.ttbr_split = 1,
 };
 
 static struct msm_iommu_dev gfx3d1_iommu = {
 	.name = "gfx3d1",
 	.ncb = 3,
-	.ttbr_split = 0,
+	.ttbr_split = 1,
 };
 
 static struct msm_iommu_dev gfx2d0_iommu = {
 	.name = "gfx2d0",
 	.ncb = 2,
-	.ttbr_split = 0,
+	.ttbr_split = 1,
 };
 
 static struct msm_iommu_dev gfx2d1_iommu = {
 	.name = "gfx2d1",
 	.ncb = 2,
-	.ttbr_split = 0,
+	.ttbr_split = 1,
 };
 
 static struct msm_iommu_dev vcap_iommu = {
@@ -387,9 +392,10 @@ static struct msm_iommu_dev vcap_iommu = {
 };
 
 static struct platform_device msm_device_iommu_jpegd = {
-	.name = "msm_iommu-v0",
+	.name = "msm_iommu",
 	.id = 0,
 	.dev = {
+		.parent = &msm_root_iommu_dev.dev,
 		.platform_data = &jpegd_iommu,
 	},
 	.num_resources = ARRAY_SIZE(msm_iommu_jpegd_resources),
@@ -397,9 +403,10 @@ static struct platform_device msm_device_iommu_jpegd = {
 };
 
 static struct platform_device msm_device_iommu_vpe = {
-	.name = "msm_iommu-v0",
+	.name = "msm_iommu",
 	.id = 1,
 	.dev = {
+		.parent = &msm_root_iommu_dev.dev,
 		.platform_data = &vpe_iommu,
 	},
 	.num_resources = ARRAY_SIZE(msm_iommu_vpe_resources),
@@ -407,9 +414,10 @@ static struct platform_device msm_device_iommu_vpe = {
 };
 
 static struct platform_device msm_device_iommu_mdp0 = {
-	.name = "msm_iommu-v0",
+	.name = "msm_iommu",
 	.id = 2,
 	.dev = {
+		.parent = &msm_root_iommu_dev.dev,
 		.platform_data = &mdp0_iommu,
 	},
 	.num_resources = ARRAY_SIZE(msm_iommu_mdp0_resources),
@@ -417,9 +425,10 @@ static struct platform_device msm_device_iommu_mdp0 = {
 };
 
 static struct platform_device msm_device_iommu_mdp1 = {
-	.name = "msm_iommu-v0",
+	.name = "msm_iommu",
 	.id = 3,
 	.dev = {
+		.parent = &msm_root_iommu_dev.dev,
 		.platform_data = &mdp1_iommu,
 	},
 	.num_resources = ARRAY_SIZE(msm_iommu_mdp1_resources),
@@ -427,9 +436,10 @@ static struct platform_device msm_device_iommu_mdp1 = {
 };
 
 static struct platform_device msm_device_iommu_rot = {
-	.name = "msm_iommu-v0",
+	.name = "msm_iommu",
 	.id = 4,
 	.dev = {
+		.parent = &msm_root_iommu_dev.dev,
 		.platform_data = &rot_iommu,
 	},
 	.num_resources = ARRAY_SIZE(msm_iommu_rot_resources),
@@ -437,9 +447,10 @@ static struct platform_device msm_device_iommu_rot = {
 };
 
 static struct platform_device msm_device_iommu_ijpeg = {
-	.name = "msm_iommu-v0",
+	.name = "msm_iommu",
 	.id = 5,
 	.dev = {
+		.parent = &msm_root_iommu_dev.dev,
 		.platform_data = &ijpeg_iommu,
 	},
 	.num_resources = ARRAY_SIZE(msm_iommu_ijpeg_resources),
@@ -447,9 +458,10 @@ static struct platform_device msm_device_iommu_ijpeg = {
 };
 
 static struct platform_device msm_device_iommu_vfe = {
-	.name = "msm_iommu-v0",
+	.name = "msm_iommu",
 	.id = 6,
 	.dev = {
+		.parent = &msm_root_iommu_dev.dev,
 		.platform_data = &vfe_iommu,
 	},
 	.num_resources = ARRAY_SIZE(msm_iommu_vfe_resources),
@@ -457,9 +469,10 @@ static struct platform_device msm_device_iommu_vfe = {
 };
 
 static struct platform_device msm_device_iommu_vcodec_a = {
-	.name = "msm_iommu-v0",
+	.name = "msm_iommu",
 	.id = 7,
 	.dev = {
+		.parent = &msm_root_iommu_dev.dev,
 		.platform_data = &vcodec_a_iommu,
 	},
 	.num_resources = ARRAY_SIZE(msm_iommu_vcodec_a_resources),
@@ -467,9 +480,10 @@ static struct platform_device msm_device_iommu_vcodec_a = {
 };
 
 static struct platform_device msm_device_iommu_vcodec_b = {
-	.name = "msm_iommu-v0",
+	.name = "msm_iommu",
 	.id = 8,
 	.dev = {
+		.parent = &msm_root_iommu_dev.dev,
 		.platform_data = &vcodec_b_iommu,
 	},
 	.num_resources = ARRAY_SIZE(msm_iommu_vcodec_b_resources),
@@ -477,9 +491,10 @@ static struct platform_device msm_device_iommu_vcodec_b = {
 };
 
 static struct platform_device msm_device_iommu_gfx3d = {
-	.name = "msm_iommu-v0",
+	.name = "msm_iommu",
 	.id = 9,
 	.dev = {
+		.parent = &msm_root_iommu_dev.dev,
 		.platform_data = &gfx3d_iommu,
 	},
 	.num_resources = ARRAY_SIZE(msm_iommu_gfx3d_resources),
@@ -487,9 +502,10 @@ static struct platform_device msm_device_iommu_gfx3d = {
 };
 
 static struct platform_device msm_device_iommu_gfx3d1 = {
-	.name = "msm_iommu-v0",
+	.name = "msm_iommu",
 	.id = 10,
 	.dev = {
+		.parent = &msm_root_iommu_dev.dev,
 		.platform_data = &gfx3d1_iommu,
 	},
 	.num_resources = ARRAY_SIZE(msm_iommu_gfx3d1_resources),
@@ -497,9 +513,10 @@ static struct platform_device msm_device_iommu_gfx3d1 = {
 };
 
 static struct platform_device msm_device_iommu_gfx2d0 = {
-	.name = "msm_iommu-v0",
+	.name = "msm_iommu",
 	.id = 10,
 	.dev = {
+		.parent = &msm_root_iommu_dev.dev,
 		.platform_data = &gfx2d0_iommu,
 	},
 	.num_resources = ARRAY_SIZE(msm_iommu_gfx2d0_resources),
@@ -507,9 +524,10 @@ static struct platform_device msm_device_iommu_gfx2d0 = {
 };
 
 static struct platform_device msm_device_iommu_gfx2d1 = {
-	.name = "msm_iommu-v0",
+	.name = "msm_iommu",
 	.id = 11,
 	.dev = {
+		.parent = &msm_root_iommu_dev.dev,
 		.platform_data = &gfx2d1_iommu,
 	},
 	.num_resources = ARRAY_SIZE(msm_iommu_gfx2d1_resources),
@@ -517,9 +535,10 @@ static struct platform_device msm_device_iommu_gfx2d1 = {
 };
 
 static struct platform_device msm_device_iommu_vcap = {
-	.name = "msm_iommu-v0",
+	.name = "msm_iommu",
 	.id = 11,
 	.dev = {
+		.parent = &msm_root_iommu_dev.dev,
 		.platform_data = &vcap_iommu,
 	},
 	.num_resources = ARRAY_SIZE(msm_iommu_vcap_resources),
@@ -975,9 +994,15 @@ static struct platform_device *msm_iommu_jpegd_ctx_devs[] = {
 static int __init iommu_init(void)
 {
 	int ret;
-	if (!msm_soc_version_supports_iommu_v0()) {
-		pr_err("IOMMU v0 is not supported on this SoC version.\n");
+	if (!msm_soc_version_supports_iommu_v1()) {
+		pr_err("IOMMU v1 is not supported on this SoC version.\n");
 		return -ENODEV;
+	}
+
+	ret = platform_device_register(&msm_root_iommu_dev);
+	if (ret != 0) {
+		pr_err("Failed to register root IOMMU device!\n");
+		goto failure;
 	}
 
 	/* Initialize common devs */
@@ -1026,6 +1051,9 @@ static int __init iommu_init(void)
 			ARRAY_SIZE(msm_iommu_vcap_ctx_devs));
 
 	return 0;
+
+failure:
+	return ret;
 }
 
 static void __exit iommu_exit(void)
@@ -1084,6 +1112,8 @@ static void __exit iommu_exit(void)
 		for (i = 0; i < ARRAY_SIZE(msm_iommu_jpegd_devs); i++)
 			platform_device_unregister(msm_iommu_jpegd_devs[i]);
 	}
+
+	platform_device_unregister(&msm_root_iommu_dev);
 }
 
 subsys_initcall(iommu_init);

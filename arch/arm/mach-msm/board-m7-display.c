@@ -257,6 +257,12 @@ static int mdp_core_clk_rate_table[] = {
 	200000000,
 };
 
+struct mdp_reg {
+	uint32_t reg;
+	uint32_t val;
+	uint32_t mask;
+};
+
 struct mdp_reg *mdp_gamma = NULL;
 int mdp_gamma_count = 0;
 struct mdp_reg mdp_gamma_jdi[] = {

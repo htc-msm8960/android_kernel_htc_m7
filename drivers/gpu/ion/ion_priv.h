@@ -2,7 +2,7 @@
  * drivers/gpu/ion/ion_priv.h
  *
  * Copyright (C) 2011 Google, Inc.
- * Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2012, The Linux Foundation. All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -98,8 +98,7 @@ struct ion_buffer {
 	void *vaddr;
 	int dmap_cnt;
 	struct sg_table *sg_table;
-	unsigned long *dirty;
-	struct list_head vmas;
+	int umap_cnt;
 	unsigned int iommu_map_cnt;
 	struct rb_root iommu_maps;
 	int marked;
@@ -148,9 +147,6 @@ struct ion_heap_ops {
 			   const struct rb_root *mem_map);
 	int (*secure_heap)(struct ion_heap *heap, int version, void *data);
 	int (*unsecure_heap)(struct ion_heap *heap, int version, void *data);
-	int (*secure_buffer)(struct ion_buffer *buffer, int version,
-				void *data, int flags);
-	int (*unsecure_buffer)(struct ion_buffer *buffer, int force_unsecure);
 };
 
 /**
@@ -181,15 +177,6 @@ struct ion_heap {
 };
 
 /**
- * ion_buffer_fault_user_mappings - fault in user mappings of this buffer
- * @buffer:		buffer
- *
- * indicates whether userspace mappings of this buffer will be faulted
- * in, this can affect how buffers are allocated from the heap.
- */
-bool ion_buffer_fault_user_mappings(struct ion_buffer *buffer);
-
-/**
  * struct mem_map_data - represents information about the memory map for a heap
  * @node:		rb node used to store in the tree of mem_map_data
  * @addr:		start address of memory region.
@@ -200,8 +187,8 @@ bool ion_buffer_fault_user_mappings(struct ion_buffer *buffer);
  */
 struct mem_map_data {
 	struct rb_node node;
-	ion_phys_addr_t addr;
-	ion_phys_addr_t addr_end;
+	unsigned long addr;
+	unsigned long addr_end;
 	unsigned long size;
 	const char *client_name;
 };
@@ -272,9 +259,6 @@ void ion_carveout_free(struct ion_heap *heap, ion_phys_addr_t addr,
 #ifdef CONFIG_CMA
 struct ion_heap *ion_cma_heap_create(struct ion_platform_heap *);
 void ion_cma_heap_destroy(struct ion_heap *);
-
-struct ion_heap *ion_secure_cma_heap_create(struct ion_platform_heap *);
-void ion_secure_cma_heap_destroy(struct ion_heap *);
 #endif
 
 struct ion_heap *msm_get_contiguous_heap(void);
@@ -329,28 +313,4 @@ void ion_cp_heap_get_base(struct ion_heap *heap, unsigned long *base,
 
 void ion_mem_map_show(struct ion_heap *heap);
 
-
-
-int ion_secure_handle(struct ion_client *client, struct ion_handle *handle,
-			int version, void *data, int flags);
-
-int ion_unsecure_handle(struct ion_client *client, struct ion_handle *handle);
-
-int ion_heap_allow_secure_allocation(enum ion_heap_type type);
-
-int ion_heap_allow_heap_secure(enum ion_heap_type type);
-
-int ion_heap_allow_handle_secure(enum ion_heap_type type);
-
-/**
- * ion_create_chunked_sg_table - helper function to create sg table
- * with specified chunk size
- * @buffer_base:	The starting address used for the sg dma address
- * @chunk_size:		The size of each entry in the sg table
- * @total_size:		The total size of the sg table (i.e. the sum of the
- *			entries). This will be rounded up to the nearest
- *			multiple of `chunk_size'
- */
-struct sg_table *ion_create_chunked_sg_table(phys_addr_t buffer_base,
-					size_t chunk_size, size_t total_size);
 #endif /* _ION_PRIV_H */

@@ -16,7 +16,7 @@ if IOMMU_SUPPORT
 # MSM IOMMU support
 config MSM_IOMMU
 	bool "MSM IOMMU Support"
-	depends on ARCH_MSM8X60 || ARCH_MSM8960 || ARCH_APQ8064 || ARCH_MSM8974 || ARCH_MPQ8092 || ARCH_MSM8610 || ARCH_MSM8226 || ARCH_MSMZINC
+	depends on ARCH_MSM8X60 || ARCH_MSM8960 || ARCH_APQ8064 || ARCH_MSM8974
 	select IOMMU_API
 	help
 	  Support for the IOMMUs found on certain Qualcomm SOCs.
@@ -33,16 +33,6 @@ config MSM_IOMMU_GPU_SYNC
 	  Say Y here if you want to synchronize access to IOMMU configuration
 	  port between CPU and GPU. CPU will grab a remote spinlock before
 	  accessing IOMMU configuration registers and GPU will do the same.
-
-	  If unsure, say N here.
-
-config MSM_IOMMU_PMON
-	bool "MSM IOMMU Perfomance Monitoring Support"
-	depends on (ARCH_MSM8974 || ARCH_MSM8610 || ARCH_MSM8226) && MSM_IOMMU
-	help
-	  Support for monitoring IOMMUs performance on certain Qualcomm SOCs.
-	  It captures TLB statistics per context bank of the IOMMU as an
-	  indication of its performance metric.
 
 	  If unsure, say N here.
 

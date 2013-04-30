@@ -265,7 +265,7 @@ u32 ddl_decoder_dpb_init(struct ddl_client_context *ddl)
 	luma_size = ddl_get_yuv_buf_size(decoder->frame_size.width,
 			decoder->frame_size.height, DDL_YUV_BUF_TYPE_TILE);
 	dpb = decoder->dp_buf.no_of_dec_pic_buf;
-	DDL_MSG_LOW("%s Decoder num DPB buffers = %u Luma Size = %u"
+	DDL_MSG_LOW("%s Decoder num DPB buffers = %u Luma Size = %u",
 				 __func__, dpb, luma_size);
 	if (dpb > DDL_MAX_BUFFER_COUNT)
 		dpb = DDL_MAX_BUFFER_COUNT;
@@ -298,7 +298,7 @@ u32 ddl_decoder_dpb_init(struct ddl_client_context *ddl)
 		luma[i] = DDL_OFFSET(ddl_context->dram_base_a.
 			align_physical_addr, frame[i].vcd_frm.physical);
 		chroma[i] = luma[i] + luma_size;
-		DDL_MSG_LOW("%s Decoder Luma address = %x Chroma address = %x"
+		DDL_MSG_LOW("%s Decoder Luma address = %x Chroma address = %x",
 					__func__, luma[i], chroma[i]);
 	}
 	switch (decoder->codec.codec) {
@@ -1001,7 +1001,7 @@ void ddl_decoder_chroma_dpb_change(struct ddl_client_context *ddl)
 	u32 luma_size, i, dpb;
 	luma_size = decoder->dpb_buf_size.size_y;
 	dpb = decoder->dp_buf.no_of_dec_pic_buf;
-	DDL_MSG_HIGH("%s Decoder num DPB buffers = %u Luma Size = %u"
+	DDL_MSG_HIGH("%s Decoder num DPB buffers = %u Luma Size = %u",
 			 __func__, dpb, luma_size);
 	if (dpb > DDL_MAX_BUFFER_COUNT)
 		dpb = DDL_MAX_BUFFER_COUNT;

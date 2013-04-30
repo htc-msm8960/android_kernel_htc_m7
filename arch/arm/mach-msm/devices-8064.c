@@ -2660,67 +2660,47 @@ struct platform_device apq8064_etm_device = {
 };
 
 struct msm_iommu_domain_name apq8064_iommu_ctx_names[] = {
-	
-	{
-		.name = "vpe_src",
-		.domain = CAMERA_DOMAIN,
-	},
-	
-	{
-		.name = "vpe_dst",
-		.domain = CAMERA_DOMAIN,
-	},
-	
-	{
-		.name = "vfe_imgwr",
-		.domain = CAMERA_DOMAIN,
-	},
-	
-	{
-		.name = "vfe_misc",
-		.domain = CAMERA_DOMAIN,
-	},
-	
+	/* Camera */
 	{
 		.name = "ijpeg_src",
 		.domain = CAMERA_DOMAIN,
 	},
-	
+	/* Camera */
 	{
 		.name = "ijpeg_dst",
 		.domain = CAMERA_DOMAIN,
 	},
-	
+	/* Camera */
 	{
 		.name = "jpegd_src",
 		.domain = CAMERA_DOMAIN,
 	},
-	
+	/* Camera */
 	{
 		.name = "jpegd_dst",
 		.domain = CAMERA_DOMAIN,
 	},
-	
+	/* Rotator src*/
 	{
 		.name = "rot_src",
 		.domain = ROTATOR_SRC_DOMAIN,
 	},
-	
+	/* Rotator dst */
 	{
 		.name = "rot_dst",
 		.domain = ROTATOR_DST_DOMAIN,
 	},
-	
+	/* Video */
 	{
 		.name = "vcodec_a_mm1",
 		.domain = VIDEO_DOMAIN,
 	},
-	
+	/* Video */
 	{
 		.name = "vcodec_b_mm2",
 		.domain = VIDEO_DOMAIN,
 	},
-	
+	/* Video */
 	{
 		.name = "vcodec_a_stream",
 		.domain = VIDEO_DOMAIN,
@@ -2728,20 +2708,27 @@ struct msm_iommu_domain_name apq8064_iommu_ctx_names[] = {
 };
 
 static struct mem_pool apq8064_video_pools[] =  {
+	/*
+	 * Video hardware has the following requirements:
+	 * 1. All video addresses used by the video hardware must be at a higher
+	 *    address than video firmware address.
+	 * 2. Video hardware can only access a range of 256MB from the base of
+	 *    the video firmware.
+	*/
 	[VIDEO_FIRMWARE_POOL] =
-	
+	/* Low addresses, intended for video firmware */
 		{
 			.paddr	= SZ_128K,
 			.size	= SZ_16M - SZ_128K,
 		},
 	[VIDEO_MAIN_POOL] =
-	
+	/* Main video pool */
 		{
 			.paddr	= SZ_16M,
 			.size	= SZ_256M - SZ_16M,
 		},
 	[GEN_POOL] =
-	
+	/* Remaining address space up to 2G */
 		{
 			.paddr	= SZ_256M,
 			.size	= SZ_2G - SZ_256M,
@@ -2750,7 +2737,7 @@ static struct mem_pool apq8064_video_pools[] =  {
 
 static struct mem_pool apq8064_camera_pools[] =  {
 	[GEN_POOL] =
-	
+	/* One address space for camera */
 		{
 			.paddr	= SZ_128K,
 			.size	= SZ_2G - SZ_128K,
@@ -2759,7 +2746,7 @@ static struct mem_pool apq8064_camera_pools[] =  {
 
 static struct mem_pool apq8064_display_read_pools[] =  {
 	[GEN_POOL] =
-	
+	/* One address space for display reads */
 		{
 			.paddr	= SZ_128K,
 			.size	= SZ_2G - SZ_128K,
@@ -2768,7 +2755,7 @@ static struct mem_pool apq8064_display_read_pools[] =  {
 
 static struct mem_pool apq8064_display_write_pools[] =  {
 	[GEN_POOL] =
-	
+	/* One address space for display writes */
 		{
 			.paddr	= SZ_128K,
 			.size	= SZ_2G - SZ_128K,
@@ -2777,7 +2764,7 @@ static struct mem_pool apq8064_display_write_pools[] =  {
 
 static struct mem_pool apq8064_rotator_src_pools[] =  {
 	[GEN_POOL] =
-	
+	/* One address space for rotator src */
 		{
 			.paddr	= SZ_128K,
 			.size	= SZ_2G - SZ_128K,
@@ -2786,7 +2773,7 @@ static struct mem_pool apq8064_rotator_src_pools[] =  {
 
 static struct mem_pool apq8064_rotator_dst_pools[] =  {
 	[GEN_POOL] =
-	
+	/* One address space for rotator dst */
 		{
 			.paddr	= SZ_128K,
 			.size	= SZ_2G - SZ_128K,
