@@ -290,4 +290,28 @@ static inline int msm_soc_version_supports_iommu_v0(void)
 	}
 	return 1;
 }
+
+static inline int msm_soc_version_supports_iommu_v1(void)
+{
+#ifdef CONFIG_OF
+        struct device_node *node;
+
+        node = of_find_compatible_node(NULL, NULL, "qcom,msm-smmu-v2");
+        if (node) {
+                of_node_put(node);
+                return 0;
+        }
 #endif
+        if (cpu_is_msm8960() &&
+            SOCINFO_VERSION_MAJOR(socinfo_get_version()) < 2)
+                return 0;
+
+        if (cpu_is_msm8x60() &&
+            (SOCINFO_VERSION_MAJOR(socinfo_get_version()) != 2 ||
+            SOCINFO_VERSION_MINOR(socinfo_get_version()) < 1))  {
+                return 0;
+        }
+        return 1;
+}
+#endif
+

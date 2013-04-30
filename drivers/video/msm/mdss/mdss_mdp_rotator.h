@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -17,7 +17,7 @@
 
 #include "mdss_mdp.h"
 
-#define MDSS_MDP_ROT_SESSION_MASK	0x40000000
+#define MDSS_MDP_ROT_SESSION_MASK	0x80000000
 
 struct mdss_mdp_rotator_session {
 	u32 session_id;
@@ -25,7 +25,7 @@ struct mdss_mdp_rotator_session {
 	u32 params_changed;
 
 	u32 format;
-	u32 flags;
+	u32 rotations;
 
 	u16 img_width;
 	u16 img_height;
@@ -42,30 +42,13 @@ struct mdss_mdp_rotator_session {
 	struct list_head head;
 };
 
-static inline u32 mdss_mdp_get_rotator_dst_format(u32 in_format)
-{
-	switch (in_format) {
-	case MDP_RGB_565:
-	case MDP_BGR_565:
-		return MDP_RGB_888;
-	case MDP_Y_CBCR_H2V2_VENUS:
-	case MDP_Y_CB_CR_H2V2:
-	case MDP_Y_CR_CB_GH2V2:
-	case MDP_Y_CR_CB_H2V2:
-		return MDP_Y_CRCB_H2V2;
-	default:
-		return in_format;
-	}
-}
-
 struct mdss_mdp_rotator_session *mdss_mdp_rotator_session_alloc(void);
 struct mdss_mdp_rotator_session *mdss_mdp_rotator_session_get(u32 session_id);
 
 int mdss_mdp_rotator_queue(struct mdss_mdp_rotator_session *rot,
 			   struct mdss_mdp_data *src_data,
 			   struct mdss_mdp_data *dst_data);
-
-int mdss_mdp_rotator_release(u32 ndx);
-int mdss_mdp_rotator_release_all(void);
+int mdss_mdp_rotator_finish(struct mdss_mdp_rotator_session *rot);
+int mdss_mdp_rotator_ctl_busy_wait(struct mdss_mdp_ctl *ctl);
 
 #endif /* MDSS_MDP_ROTATOR_H */

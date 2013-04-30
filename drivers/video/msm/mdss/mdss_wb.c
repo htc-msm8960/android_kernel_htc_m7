@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -25,49 +25,16 @@
 
 #include "mdss_panel.h"
 
-/**
- * mdss_wb_check_params - check new panel info params
- * @pdata: current panel information
- * @new: updates to panel info
- *
- * Checks if there are any changes that require panel reconfiguration
- * in order to be reflected on writeback buffer.
- *
- * Return negative errno if invalid input, zero if there is no panel reconfig
- * needed and non-zero if reconfiguration is needed.
- */
-static int mdss_wb_check_params(struct mdss_panel_data *pdata,
-	struct mdss_panel_info *new)
+static int mdss_wb_on(struct mdss_panel_data *pdata)
 {
-	struct mdss_panel_info *old;
-
-	if (!pdata || !new) {
-		pr_err("%s: Invalid input\n", __func__);
-		return -EINVAL;
-	}
-
-	old = &pdata->panel_info;
-
-	if ((old->xres != new->xres) || (old->yres != new->yres))
-		return 1;
-
+	pr_debug("%s\n", __func__);
 	return 0;
 }
 
-static int mdss_wb_event_handler(struct mdss_panel_data *pdata,
-				 int event, void *arg)
+static int mdss_wb_off(struct mdss_panel_data *pdata)
 {
-	int rc = 0;
-
-	switch (event) {
-	case MDSS_EVENT_CHECK_PARAMS:
-		rc = mdss_wb_check_params(pdata, (struct mdss_panel_info *)arg);
-		break;
-	default:
-		pr_debug("%s: panel event (%d) not handled\n", __func__, event);
-		break;
-	}
-	return rc;
+	pr_debug("%s\n", __func__);
+	return 0;
 }
 
 static int mdss_wb_parse_dt(struct platform_device *pdev,
@@ -106,12 +73,13 @@ static int mdss_wb_probe(struct platform_device *pdev)
 	pdata->panel_info.type = WRITEBACK_PANEL;
 	pdata->panel_info.clk_rate = 74250000;
 	pdata->panel_info.pdest = DISPLAY_3;
-	pdata->panel_info.out_format = MDP_Y_CBCR_H2V2_VENUS;
+	pdata->panel_info.out_format = MDP_Y_CBCR_H2V2;
 
-	pdata->event_handler = mdss_wb_event_handler;
+	pdata->on = mdss_wb_on;
+	pdata->off = mdss_wb_off;
 	pdev->dev.platform_data = pdata;
 
-	rc = mdss_register_panel(pdev, pdata);
+	rc = mdss_register_panel(pdata);
 	if (rc) {
 		dev_err(&pdev->dev, "unable to register writeback panel\n");
 		return rc;

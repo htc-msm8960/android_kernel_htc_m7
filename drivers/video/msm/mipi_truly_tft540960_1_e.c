@@ -679,7 +679,6 @@ static int mipi_truly_lcd_on(struct platform_device *pdev)
 {
 	struct msm_fb_data_type *mfd;
 	struct mipi_panel_info *mipi;
-	struct dcs_cmd_req cmdreq;
 
 	mfd = platform_get_drvdata(pdev);
 
@@ -693,21 +692,14 @@ static int mipi_truly_lcd_on(struct platform_device *pdev)
 	pr_info("%s: mode = %d\n", __func__, mipi->mode);
 	msleep(120);
 
-	memset(&cmdreq, 0, sizeof(cmdreq));
 	if (mipi->mode == DSI_VIDEO_MODE) {
-		cmdreq.cmds = truly_video_display_on_cmds;
-		cmdreq.cmds_cnt = ARRAY_SIZE(truly_video_display_on_cmds);
-		cmdreq.flags = CMD_REQ_COMMIT;
-		cmdreq.rlen = 0;
-		cmdreq.cb = NULL;
-		mipi_dsi_cmdlist_put(&cmdreq);
+		mipi_dsi_cmds_tx(&truly_tx_buf,
+			truly_video_display_on_cmds,
+			ARRAY_SIZE(truly_video_display_on_cmds));
 	} else if (mipi->mode == DSI_CMD_MODE) {
-		cmdreq.cmds = truly_cmd_display_on_cmds;
-		cmdreq.cmds_cnt = ARRAY_SIZE(truly_cmd_display_on_cmds);
-		cmdreq.flags = CMD_REQ_COMMIT;
-		cmdreq.rlen = 0;
-		cmdreq.cb = NULL;
-		mipi_dsi_cmdlist_put(&cmdreq);
+		mipi_dsi_cmds_tx(&truly_tx_buf,
+			truly_cmd_display_on_cmds,
+			ARRAY_SIZE(truly_cmd_display_on_cmds));
 	}
 
 	return 0;
@@ -716,7 +708,6 @@ static int mipi_truly_lcd_on(struct platform_device *pdev)
 static int mipi_truly_lcd_off(struct platform_device *pdev)
 {
 	struct msm_fb_data_type *mfd;
-	struct dcs_cmd_req cmdreq;
 
 	mfd = platform_get_drvdata(pdev);
 
@@ -725,13 +716,8 @@ static int mipi_truly_lcd_off(struct platform_device *pdev)
 	if (mfd->key != MFD_KEY)
 		return -EINVAL;
 
-	memset(&cmdreq, 0, sizeof(cmdreq));
-	cmdreq.cmds = truly_display_off_cmds;
-	cmdreq.cmds_cnt = ARRAY_SIZE(truly_display_off_cmds);
-	cmdreq.flags = CMD_REQ_COMMIT;
-	cmdreq.rlen = 0;
-	cmdreq.cb = NULL;
-	mipi_dsi_cmdlist_put(&cmdreq);
+	mipi_dsi_cmds_tx(&truly_tx_buf, truly_display_off_cmds,
+			ARRAY_SIZE(truly_display_off_cmds));
 
 	return 0;
 }

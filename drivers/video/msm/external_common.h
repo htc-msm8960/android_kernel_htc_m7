@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2010-2012, Code Aurora Forum. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -21,7 +21,7 @@
 #define DEV_DBG(args...)	pr_debug(DEV_DBG_PREFIX args)
 #else
 #define DEV_DBG(args...)	(void)0
-#endif /* DEBUG */
+#endif 
 #define DEV_INFO(args...)	dev_info(external_common_state->dev, args)
 #define DEV_WARN(args...)	dev_warn(external_common_state->dev, args)
 #define DEV_ERR(args...)	dev_err(external_common_state->dev, args)
@@ -33,7 +33,6 @@
 #define TVOUT_VFRMT_PAL_M_720x480i		3
 #define TVOUT_VFRMT_PAL_N_720x480i		4
 #elif defined(CONFIG_FB_MSM_HDMI_COMMON)
-/* all video formats defined by EIA CEA 861D */
 #define HDMI_VFRMT_640x480p60_4_3	0
 #define HDMI_VFRMT_720x480p60_4_3	1
 #define HDMI_VFRMT_720x480p60_16_9	2
@@ -109,22 +108,10 @@
 #define HDMI_VFRMT_1440x480i240_4_3	HDMI_VFRMT_720x480i240_4_3
 #define HDMI_VFRMT_720x480i240_16_9	58
 #define HDMI_VFRMT_1440x480i240_16_9	HDMI_VFRMT_720x480i240_16_9
+#define HDMI_VFRMT_MAX			59
 #define HDMI_VFRMT_FORCE_32BIT		0x7FFFFFFF
 
-/* Video Identification Codes from 65-127 are reserved for the future */
-#define HDMI_VFRMT_END			127
-
-/* VESA DMT TIMINGS */
-/* DMT ID: 23h, STD code: (81h, 80h), also a part of Established Timing III */
-#define HDMI_VFRMT_1280x1024p60_5_4	(HDMI_VFRMT_END + 1)
-#define DMT_VFRMT_END                   HDMI_VFRMT_1280x1024p60_5_4
-
-#define HDMI_VFRMT_MAX	                (DMT_VFRMT_END + 1)
-
-
-extern int ext_resolution;
-
-struct hdmi_disp_mode_timing_type {
+struct msm_hdmi_mode_timing_info {
 	uint32	video_format;
 	uint32	active_h;
 	uint32	front_porch_h;
@@ -136,9 +123,9 @@ struct hdmi_disp_mode_timing_type {
 	uint32	pulse_width_v;
 	uint32	back_porch_v;
 	boolean	active_low_v;
-	/* Must divide by 1000 to get the actual frequency in MHZ */
+	
 	uint32	pixel_freq;
-	/* Must divide by 1000 to get the actual frequency in HZ */
+	
 	uint32	refresh_rate;
 	boolean	interlaced;
 	boolean	supported;
@@ -195,18 +182,10 @@ struct hdmi_disp_mode_timing_type {
 #define HDMI_SETTINGS_1920x1080p30_16_9					\
 	{HDMI_VFRMT_1920x1080p30_16_9,   1920,  88,   44,  148,  FALSE,	\
 	 1080, 4, 5, 36, FALSE, 74250, 30000, FALSE, TRUE}
-#define HDMI_SETTINGS_1280x1024p60_5_4					\
-	{HDMI_VFRMT_1280x1024p60_5_4,   1280,  48,  112,  248,  FALSE, \
-	 1024, 1, 3, 38, FALSE, 108000, 60000, FALSE, TRUE}
 
-/* A lookup table for all the supported display modes by the HDMI
- * hardware and driver.  Use HDMI_SETUP_LUT in the module init to
- * setup the LUT with the supported modes. */
-extern struct hdmi_disp_mode_timing_type
+extern struct msm_hdmi_mode_timing_info
 	hdmi_common_supported_video_mode_lut[HDMI_VFRMT_MAX];
 
-/* Structure that encapsulates all the supported display modes by the HDMI sink
- * device */
 struct hdmi_disp_mode_list_type {
 	uint32	disp_mode_list[HDMI_VFRMT_MAX];
 #define TOP_AND_BOTTOM		0x10
@@ -219,22 +198,13 @@ struct hdmi_disp_mode_list_type {
 };
 #endif
 
-/*
- * As per the CEA-861E spec, there can be a total of 10 short audio
- * descriptors with each SAD being 3 bytes long.
- * Thus, the maximum length of the audio data block would be 30 bytes
- */
-#define MAX_AUDIO_DATA_BLOCK_SIZE	30
-#define MAX_SPKR_ALLOC_DATA_BLOCK_SIZE	3
-
 struct external_common_state_type {
 	boolean hpd_state;
 	struct kobject *uevent_kobj;
 	uint32 video_resolution;
-	boolean default_res_supported;
+	bool vcdb_support;
 	struct device *dev;
 	struct switch_dev sdev;
-	struct switch_dev audio_sdev;
 #ifdef CONFIG_FB_MSM_HDMI_3D
 	boolean format_3d;
 	void (*switch_3d)(boolean on);
@@ -244,7 +214,9 @@ struct external_common_state_type {
 	boolean hpd_feature_on;
 	boolean hdmi_sink;
 	struct hdmi_disp_mode_list_type disp_mode_list;
+	uint8 speaker_allocation_block;
 	uint16 video_latency, audio_latency;
+	uint8 audio_data_block_cnt;
 	uint16 physical_address;
 	uint32 preferred_video_format;
 	uint8 pt_scan_info;
@@ -254,16 +226,12 @@ struct external_common_state_type {
 	uint8 spd_product_description[16];
 	boolean present_3d;
 	boolean present_hdcp;
-	uint8 audio_data_block[MAX_AUDIO_DATA_BLOCK_SIZE];
-	int adb_size;
-	uint8 spkr_alloc_data_block[MAX_SPKR_ALLOC_DATA_BLOCK_SIZE];
-	int sadb_size;
+	uint32 audio_data_blocks[16];
 	int (*read_edid_block)(int block, uint8 *edid_buf);
 	int (*hpd_feature)(int on);
 #endif
 };
 
-/* The external interface driver needs to initialize the common state. */
 extern struct external_common_state_type *external_common_state;
 extern struct mutex external_common_state_hpd_mutex;
 extern struct mutex hdmi_msm_state_mutex;
@@ -272,7 +240,7 @@ extern struct mutex hdmi_msm_state_mutex;
 #define VFRMT_NOT_SUPPORTED(VFRMT) \
 	{VFRMT, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, FALSE}
 #define HDMI_SETUP_LUT(MODE) do {					\
-		struct hdmi_disp_mode_timing_type mode			\
+		struct msm_hdmi_mode_timing_info mode			\
 			= HDMI_SETTINGS_ ## MODE;			\
 		hdmi_common_supported_video_mode_lut[mode.video_format]	\
 			= mode;						\
@@ -281,18 +249,18 @@ extern struct mutex hdmi_msm_state_mutex;
 int hdmi_common_read_edid(void);
 const char *video_format_2string(uint32 format);
 bool hdmi_common_get_video_format_from_drv_data(struct msm_fb_data_type *mfd);
-const struct hdmi_disp_mode_timing_type *hdmi_common_get_mode(uint32 mode);
-const struct hdmi_disp_mode_timing_type *hdmi_common_get_supported_mode(
+const struct msm_hdmi_mode_timing_info *hdmi_common_get_mode(uint32 mode);
+const struct msm_hdmi_mode_timing_info *hdmi_common_get_supported_mode(
 	uint32 mode);
-const struct hdmi_disp_mode_timing_type *hdmi_mhl_get_mode(uint32 mode);
-const struct hdmi_disp_mode_timing_type *hdmi_mhl_get_supported_mode(
+const struct msm_hdmi_mode_timing_info *hdmi_mhl_get_mode(uint32 mode);
+const struct msm_hdmi_mode_timing_info *hdmi_mhl_get_supported_mode(
 	uint32 mode);
 void hdmi_common_init_panel_info(struct msm_panel_info *pinfo);
 
-ssize_t video_3d_format_2string(uint32 format, char *buf);
+ssize_t video_3d_format_2string(uint32 format, char *buf, int size);
 #endif
 
 int external_common_state_create(struct platform_device *pdev);
 void external_common_state_remove(void);
 
-#endif /* __EXTERNAL_COMMON_H__ */
+#endif 

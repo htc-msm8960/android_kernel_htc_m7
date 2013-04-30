@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -70,13 +70,28 @@ static struct mdss_mdp_pipe *mdss_mdp_rotator_pipe_alloc(void)
 {
 	struct mdss_mdp_mixer *mixer;
 	struct mdss_mdp_pipe *pipe = NULL;
+	int pnum;
 
 	mixer = mdss_mdp_wb_mixer_alloc(1);
 	if (!mixer)
 		return NULL;
 
-	pipe = mdss_mdp_pipe_alloc_dma(mixer);
+	switch (mixer->num) {
+	case MDSS_MDP_LAYERMIXER3:
+		pnum = MDSS_MDP_SSPP_DMA0;
+		break;
+	case MDSS_MDP_LAYERMIXER4:
+		pnum = MDSS_MDP_SSPP_DMA1;
+		break;
+	default:
+		goto done;
+	}
 
+	pipe = mdss_mdp_pipe_alloc_pnum(pnum);
+
+	if (pipe)
+		pipe->mixer = mixer;
+done:
 	if (!pipe)
 		mdss_mdp_wb_mixer_destroy(mixer);
 
@@ -170,19 +185,14 @@ int mdss_mdp_rotator_queue(struct mdss_mdp_rotator_session *rot,
 			   struct mdss_mdp_data *src_data,
 			   struct mdss_mdp_data *dst_data)
 {
-	struct mdss_mdp_pipe *rot_pipe = NULL;
+	struct mdss_mdp_pipe *rot_pipe;
 	struct mdss_mdp_ctl *ctl;
-	int ret, need_wait = false;
+	int ret;
 
-	ret = mutex_lock_interruptible(&rotator_lock);
-	if (ret)
-		return ret;
-
-	if (!rot || !rot->ref_cnt) {
-		mutex_unlock(&rotator_lock);
+	if (!rot)
 		return -ENODEV;
-	}
 
+	mutex_lock(&rotator_lock);
 	ret = mdss_mdp_rotator_pipe_dequeue(rot);
 	if (ret) {
 		pr_err("unable to acquire rotator\n");
@@ -197,12 +207,13 @@ int mdss_mdp_rotator_queue(struct mdss_mdp_rotator_session *rot,
 
 	if (rot->params_changed) {
 		rot->params_changed = 0;
-		rot_pipe->flags = rot->flags;
+		rot_pipe->flags = rot->rotations;
 		rot_pipe->src_fmt = mdss_mdp_get_format_params(rot->format);
 		rot_pipe->img_width = rot->img_width;
 		rot_pipe->img_height = rot->img_height;
 		rot_pipe->src = rot->src_rect;
 		rot_pipe->dst = rot->src_rect;
+		rot_pipe->bwc_mode = rot->bwc_mode;
 		rot_pipe->params_changed++;
 	}
 
@@ -214,21 +225,16 @@ int mdss_mdp_rotator_queue(struct mdss_mdp_rotator_session *rot,
 
 	ret = mdss_mdp_rotator_kickoff(ctl, rot, dst_data);
 
-	if (ret == 0 && !rot->no_wait)
-		need_wait = true;
 done:
 	mutex_unlock(&rotator_lock);
 
-	if (need_wait)
+	if (!rot->no_wait)
 		mdss_mdp_rotator_busy_wait(rot);
-
-	if (rot_pipe)
-		pr_debug("end of rotator pnum=%d enqueue\n", rot_pipe->num);
 
 	return ret;
 }
 
-static int mdss_mdp_rotator_finish(struct mdss_mdp_rotator_session *rot)
+int mdss_mdp_rotator_finish(struct mdss_mdp_rotator_session *rot)
 {
 	struct mdss_mdp_pipe *rot_pipe;
 
@@ -237,6 +243,7 @@ static int mdss_mdp_rotator_finish(struct mdss_mdp_rotator_session *rot)
 
 	pr_debug("finish rot id=%x\n", rot->session_id);
 
+	mutex_lock(&rotator_lock);
 	rot_pipe = rot->pipe;
 	if (rot_pipe) {
 		mdss_mdp_rotator_busy_wait(rot);
@@ -248,43 +255,7 @@ static int mdss_mdp_rotator_finish(struct mdss_mdp_rotator_session *rot)
 		mdss_mdp_pipe_destroy(rot_pipe);
 		mdss_mdp_wb_mixer_destroy(mixer);
 	}
-
-	return 0;
-}
-
-int mdss_mdp_rotator_release(u32 ndx)
-{
-	struct mdss_mdp_rotator_session *rot;
-	mutex_lock(&rotator_lock);
-	rot = mdss_mdp_rotator_session_get(ndx);
-	if (rot) {
-		mdss_mdp_rotator_finish(rot);
-	} else {
-		pr_warn("unknown session id=%x\n", ndx);
-		return -ENOENT;
-	}
 	mutex_unlock(&rotator_lock);
-
-	return 0;
-}
-
-int mdss_mdp_rotator_release_all(void)
-{
-	struct mdss_mdp_rotator_session *rot;
-	int i, cnt;
-
-	mutex_lock(&rotator_lock);
-	for (i = 0, cnt = 0; i < MAX_ROTATOR_SESSIONS; i++) {
-		rot = &rotator_session[i];
-		if (rot->ref_cnt) {
-			mdss_mdp_rotator_finish(rot);
-			cnt++;
-		}
-	}
-	mutex_unlock(&rotator_lock);
-
-	if (cnt)
-		pr_debug("cleaned up %d rotator sessions\n", cnt);
 
 	return 0;
 }

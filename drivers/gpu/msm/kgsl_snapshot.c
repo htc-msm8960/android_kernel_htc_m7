@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -106,12 +106,7 @@ static int snapshot_context_info(int id, void *ptr, void *data)
 {
 	struct kgsl_snapshot_linux_context *header = _ctxtptr;
 	struct kgsl_context *context = ptr;
-	struct kgsl_device *device;
-
-	if (context)
-		device = context->dev_priv->device;
-	else
-		device = (struct kgsl_device *)data;
+	struct kgsl_device *device = context->dev_priv->device;
 
 	header->id = id;
 
@@ -146,9 +141,6 @@ static int snapshot_os(struct kgsl_device *device,
 
 	idr_for_each(&device->context_idr, snapshot_context_count, &ctxtcount);
 
-	/* Increment ctxcount for the global memstore */
-	ctxtcount++;
-
 	size += ctxtcount * sizeof(struct kgsl_snapshot_linux_context);
 
 	/* Make sure there is enough room for the data */
@@ -177,9 +169,8 @@ static int snapshot_os(struct kgsl_device *device,
 	header->grpclk = kgsl_get_clkrate(pwr->grp_clks[0]);
 	header->busclk = kgsl_get_clkrate(pwr->ebi1_clk);
 
-	/* Save the last active context */
-	kgsl_sharedmem_readl(&device->memstore, &header->current_context,
-		KGSL_MEMSTORE_OFFSET(KGSL_MEMSTORE_GLOBAL, current_context));
+	/* Future proof for per-context timestamps */
+	header->current_context = -1;
 
 	/* Get the current PT base */
 	header->ptbase = kgsl_mmu_get_current_ptbase(&device->mmu);
@@ -194,10 +185,8 @@ static int snapshot_os(struct kgsl_device *device,
 
 	header->ctxtcount = ctxtcount;
 
-	_ctxtptr = snapshot + sizeof(*header);
-	/* append information for the global context */
-	snapshot_context_info(KGSL_MEMSTORE_GLOBAL, NULL, device);
 	/* append information for each context */
+	_ctxtptr = snapshot + sizeof(*header);
 	idr_for_each(&device->context_idr, snapshot_context_info, NULL);
 
 	/* Return the size of the data segment */
@@ -294,7 +283,7 @@ static void kgsl_snapshot_put_object(struct kgsl_device *device,
 {
 	list_del(&obj->node);
 
-	obj->entry->memdesc.priv &= ~KGSL_MEMDESC_FROZEN;
+	obj->entry->flags &= ~KGSL_MEM_ENTRY_FROZEN;
 	kgsl_mem_entry_put(obj->entry);
 
 	kfree(obj);
@@ -386,8 +375,8 @@ int kgsl_snapshot_get_object(struct kgsl_device *device, unsigned int ptbase,
 	/* If the buffer is already on the list, skip it */
 	list_for_each_entry(obj, &device->snapshot_obj_list, node) {
 		if (obj->gpuaddr == gpuaddr && obj->ptbase == ptbase) {
-			/* If the size is different, use the bigger size */
-			if (obj->size < size)
+			/* If the size is different, use the new size */
+			if (obj->size != size)
 				obj->size = size;
 
 			return 0;
@@ -427,10 +416,10 @@ int kgsl_snapshot_get_object(struct kgsl_device *device, unsigned int ptbase,
 	 * 0 so it doesn't get counted twice
 	 */
 
-	if (entry->memdesc.priv & KGSL_MEMDESC_FROZEN)
+	if (entry->flags & KGSL_MEM_ENTRY_FROZEN)
 		return 0;
 
-	entry->memdesc.priv |= KGSL_MEMDESC_FROZEN;
+	entry->flags |= KGSL_MEM_ENTRY_FROZEN;
 
 	return entry->memdesc.size;
 }

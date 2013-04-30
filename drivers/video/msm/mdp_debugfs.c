@@ -719,6 +719,84 @@ static const struct file_operations pmdh_fops = {
 	.write = pmdh_reg_write,
 };
 
+
+
+#if defined(CONFIG_FB_MSM_OVERLAY) && defined(CONFIG_FB_MSM_MDDI)
+static int vsync_reg_open(struct inode *inode, struct file *file)
+{
+	/* non-seekable */
+	file->f_mode &= ~(FMODE_LSEEK | FMODE_PREAD | FMODE_PWRITE);
+	return 0;
+}
+
+static int vsync_reg_release(struct inode *inode, struct file *file)
+{
+	return 0;
+}
+
+static ssize_t vsync_reg_write(
+	struct file *file,
+	const char __user *buff,
+	size_t count,
+	loff_t *ppos)
+{
+	uint32 enable;
+	int cnt;
+
+	if (count >= sizeof(debug_buf))
+		return -EFAULT;
+
+	if (copy_from_user(debug_buf, buff, count))
+		return -EFAULT;
+
+	debug_buf[count] = 0;	/* end of string */
+
+	cnt = sscanf(debug_buf, "%x", &enable);
+
+	mdp_dmap_vsync_set(enable);
+
+	return count;
+}
+
+static ssize_t vsync_reg_read(
+	struct file *file,
+	char __user *buff,
+	size_t count,
+	loff_t *ppos)
+{
+	char *bp;
+	int len = 0;
+	int tot = 0;
+	int dlen;
+
+	if (*ppos)
+		return 0;	/* the end */
+
+	bp = debug_buf;
+	dlen = sizeof(debug_buf);
+	len = snprintf(bp, dlen, "%x\n", mdp_dmap_vsync_get());
+	tot += len;
+	bp += len;
+	*bp = 0;
+	tot++;
+
+	if (copy_to_user(buff, debug_buf, tot))
+		return -EFAULT;
+
+	*ppos += tot;	/* increase offset */
+
+	return tot;
+}
+
+
+static const struct file_operations vsync_fops = {
+	.open = vsync_reg_open,
+	.release = vsync_reg_release,
+	.read = vsync_reg_read,
+	.write = vsync_reg_write,
+};
+#endif
+
 static ssize_t emdh_reg_write(
 	struct file *file,
 	const char __user *buff,
@@ -1029,135 +1107,6 @@ static const struct file_operations dbg_reg_fops = {
 	.write = dbg_reg_write,
 };
 
-u32 dbg_force_ov0_blt;
-u32 dbg_force_ov1_blt;
-
-static ssize_t dbg_force_ov0_blt_read(
-	struct file *file,
-	char __user *buff,
-	size_t count,
-	loff_t *ppos) {
-	int len;
-
-	if (*ppos)
-		return 0;
-
-	len = snprintf(debug_buf, sizeof(debug_buf),
-		       "%d\n", dbg_force_ov0_blt);
-
-	if (len < 0)
-		return 0;
-
-	if (copy_to_user(buff, debug_buf, len))
-		return -EFAULT;
-
-	*ppos += len;
-
-	return len;
-}
-
-static ssize_t dbg_force_ov0_blt_write(
-	struct file *file,
-	const char __user *buff,
-	size_t count,
-	loff_t *ppos)
-{
-	u32 cnt;
-
-	if (count >= sizeof(debug_buf))
-		return -EFAULT;
-
-	if (copy_from_user(debug_buf, buff, count))
-		return -EFAULT;
-
-	debug_buf[count] = 0;	/* end of string */
-
-	cnt = sscanf(debug_buf, "%x", &dbg_force_ov0_blt);
-
-	pr_info("%s: dbg_force_ov0_blt = %x\n",
-		__func__, dbg_force_ov0_blt);
-
-	if ((dbg_force_ov0_blt & 0x0f) > 2)
-		pr_err("%s: invalid dbg_force_ov0_blt = %d\n",
-			__func__, dbg_force_ov0_blt);
-
-	if ((dbg_force_ov0_blt >> 4) > 2)
-		pr_err("%s: invalid dbg_force_ov0_blt = %d\n",
-			__func__, dbg_force_ov0_blt);
-
-	return count;
-}
-
-static const struct file_operations dbg_force_ov0_blt_fops = {
-	.open = dbg_open,
-	.release = dbg_release,
-	.read = dbg_force_ov0_blt_read,
-	.write = dbg_force_ov0_blt_write,
-};
-
-static ssize_t dbg_force_ov1_blt_read(
-	struct file *file,
-	char __user *buff,
-	size_t count,
-	loff_t *ppos) {
-	int len;
-
-	if (*ppos)
-		return 0;
-
-	len = snprintf(debug_buf, sizeof(debug_buf),
-		       "%x\n", dbg_force_ov1_blt);
-
-	if (len < 0)
-		return 0;
-
-	if (copy_to_user(buff, debug_buf, len))
-		return -EFAULT;
-
-	*ppos += len;
-
-	return len;
-}
-
-static ssize_t dbg_force_ov1_blt_write(
-	struct file *file,
-	const char __user *buff,
-	size_t count,
-	loff_t *ppos)
-{
-	u32 cnt;
-
-	if (count >= sizeof(debug_buf))
-		return -EFAULT;
-
-	if (copy_from_user(debug_buf, buff, count))
-		return -EFAULT;
-
-	debug_buf[count] = 0;	/* end of string */
-
-	cnt = sscanf(debug_buf, "%x", &dbg_force_ov1_blt);
-
-	pr_info("%s: dbg_force_ov1_blt = %x\n",
-		__func__, dbg_force_ov1_blt);
-
-	if ((dbg_force_ov1_blt & 0x0f) > 2)
-		pr_err("%s: invalid dbg_force_ov1_blt = %x\n",
-			__func__, dbg_force_ov1_blt);
-
-	if ((dbg_force_ov1_blt >> 4) > 2)
-		pr_err("%s: invalid dbg_force_ov1_blt = %d\n",
-			__func__, dbg_force_ov1_blt);
-
-	return count;
-}
-
-static const struct file_operations dbg_force_ov1_blt_fops = {
-	.open = dbg_open,
-	.release = dbg_release,
-	.read = dbg_force_ov1_blt_read,
-	.write = dbg_force_ov1_blt_write,
-};
-
 #ifdef CONFIG_FB_MSM_HDMI_MSM_PANEL
 static uint32 hdmi_offset;
 static uint32 hdmi_count;
@@ -1378,22 +1327,6 @@ int mdp_debugfs_init(void)
 	}
 #endif
 
-	if (debugfs_create_file("force_ov0_blt", 0644, dent, 0,
-				&dbg_force_ov0_blt_fops)
-			== NULL) {
-		pr_err("%s(%d): debugfs_create_file: debug fail\n",
-			__FILE__, __LINE__);
-		return -EFAULT;
-	}
-
-	if (debugfs_create_file("force_ov1_blt", 0644, dent, 0,
-				&dbg_force_ov1_blt_fops)
-			== NULL) {
-		pr_err("%s(%d): debugfs_create_file: debug fail\n",
-			__FILE__, __LINE__);
-		return -EFAULT;
-	}
-
 	dent = debugfs_create_dir("mddi", NULL);
 
 	if (IS_ERR(dent)) {
@@ -1408,6 +1341,15 @@ int mdp_debugfs_init(void)
 			__FILE__, __LINE__);
 		return -1;
 	}
+
+#if defined(CONFIG_FB_MSM_OVERLAY) && defined(CONFIG_FB_MSM_MDDI)
+	if (debugfs_create_file("vsync", 0644, dent, 0, &vsync_fops)
+			== NULL) {
+		printk(KERN_ERR "%s(%d): debugfs_create_file: debug fail\n",
+			__FILE__, __LINE__);
+		return -1;
+	}
+#endif
 
 	dent = debugfs_create_dir("emdh", NULL);
 

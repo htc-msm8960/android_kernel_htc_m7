@@ -193,7 +193,6 @@ static int mipi_toshiba_lcd_on(struct platform_device *pdev)
 	if (mfd->key != MFD_KEY)
 		return -EINVAL;
 
-	memset(&cmdreq, 0, sizeof(cmdreq));
 	if (TM_GET_PID(mfd->panel.id) == MIPI_DSI_PANEL_WVGA_PT) {
 		cmdreq.cmds = toshiba_wvga_display_on_cmds;
 		cmdreq.cmds_cnt = ARRAY_SIZE(toshiba_wvga_display_on_cmds);
@@ -215,6 +214,11 @@ static int mipi_toshiba_lcd_on(struct platform_device *pdev)
 	return 0;
 }
 
+static int mipi_toshiba_early_off(struct platform_device *pdev)
+{
+	return 0;
+}
+
 static int mipi_toshiba_lcd_off(struct platform_device *pdev)
 {
 	struct msm_fb_data_type *mfd;
@@ -227,14 +231,13 @@ static int mipi_toshiba_lcd_off(struct platform_device *pdev)
 	if (mfd->key != MFD_KEY)
 		return -EINVAL;
 
-	memset(&cmdreq, 0, sizeof(cmdreq));
 	cmdreq.cmds = toshiba_display_off_cmds;
 	cmdreq.cmds_cnt = ARRAY_SIZE(toshiba_display_off_cmds);
 	cmdreq.flags = CMD_REQ_COMMIT;
 	cmdreq.rlen = 0;
 	cmdreq.cb = NULL;
-	mipi_dsi_cmdlist_put(&cmdreq);
 
+	mipi_dsi_cmdlist_put(&cmdreq);
 	return 0;
 }
 
@@ -316,6 +319,7 @@ static struct msm_fb_panel_data toshiba_panel_data = {
 	.on		= mipi_toshiba_lcd_on,
 	.off		= mipi_toshiba_lcd_off,
 	.late_init	= mipi_toshiba_lcd_late_init,
+	.early_off	= mipi_toshiba_early_off,
 	.set_backlight  = mipi_toshiba_set_backlight,
 };
 

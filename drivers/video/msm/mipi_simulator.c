@@ -36,7 +36,6 @@ static int mipi_simulator_lcd_on(struct platform_device *pdev)
 {
 	struct msm_fb_data_type *mfd;
 	struct mipi_panel_info *mipi;
-	struct dcs_cmd_req cmdreq;
 
 	mfd = platform_get_drvdata(pdev);
 	mipi  = &mfd->panel_info.mipi;
@@ -49,14 +48,9 @@ static int mipi_simulator_lcd_on(struct platform_device *pdev)
 	pr_debug("%s:%d, debug info (mode) : %d", __func__, __LINE__,
 		 mipi->mode);
 
-	memset(&cmdreq, 0, sizeof(cmdreq));
 	if (mipi->mode == DSI_VIDEO_MODE) {
-		cmdreq.cmds = display_on_cmds;
-		cmdreq.cmds_cnt = ARRAY_SIZE(display_on_cmds);
-		cmdreq.flags = CMD_REQ_COMMIT;
-		cmdreq.rlen = 0;
-		cmdreq.cb = NULL;
-		mipi_dsi_cmdlist_put(&cmdreq);
+		mipi_dsi_cmds_tx(&simulator_tx_buf, display_on_cmds,
+			ARRAY_SIZE(display_on_cmds));
 	} else {
 		pr_err("%s:%d, CMD MODE NOT SUPPORTED", __func__, __LINE__);
 		return -EINVAL;
@@ -69,7 +63,6 @@ static int mipi_simulator_lcd_off(struct platform_device *pdev)
 {
 	struct msm_fb_data_type *mfd;
 	struct mipi_panel_info *mipi;
-	struct dcs_cmd_req cmdreq;
 
 	mfd = platform_get_drvdata(pdev);
 	mipi  = &mfd->panel_info.mipi;
@@ -81,14 +74,9 @@ static int mipi_simulator_lcd_off(struct platform_device *pdev)
 
 	pr_debug("%s:%d, debug info", __func__, __LINE__);
 
-	memset(&cmdreq, 0, sizeof(cmdreq));
 	if (mipi->mode == DSI_VIDEO_MODE) {
-		cmdreq.cmds = display_off_cmds;
-		cmdreq.cmds_cnt = ARRAY_SIZE(display_off_cmds);
-		cmdreq.flags = CMD_REQ_COMMIT;
-		cmdreq.rlen = 0;
-		cmdreq.cb = NULL;
-		mipi_dsi_cmdlist_put(&cmdreq);
+		mipi_dsi_cmds_tx(&simulator_tx_buf, display_off_cmds,
+			ARRAY_SIZE(display_off_cmds));
 	} else {
 		pr_debug("%s:%d, DONT REACH HERE", __func__, __LINE__);
 		return -EINVAL;
