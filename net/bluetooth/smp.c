@@ -32,12 +32,12 @@
 #include <crypto/b128ops.h>
 #include <asm/unaligned.h>
 
-#define SMP_TIMEOUT 30000 
+#define SMP_TIMEOUT 30000 /* 30 seconds */
 
-#define SMP_MIN_CONN_INTERVAL	40	
-#define SMP_MAX_CONN_INTERVAL	56	
-#define SMP_MAX_CONN_LATENCY	0	
-#define SMP_SUPERVISION_TIMEOUT	500	
+#define SMP_MIN_CONN_INTERVAL	40	/* 50ms (40 * 1.25ms) */
+#define SMP_MAX_CONN_INTERVAL	56	/* 70ms (56 * 1.25ms) */
+#define SMP_MAX_CONN_LATENCY	0	/* 0ms (0 * 1.25ms) */
+#define SMP_SUPERVISION_TIMEOUT	500	/* 5 seconds (500 * 10ms) */
 
 #ifndef FALSE
 #define FALSE 0
@@ -105,7 +105,7 @@ static int smp_c1(struct crypto_blkcipher *tfm, u8 k[16], u8 r[16],
 
 	memset(p1, 0, 16);
 
-	
+	/* p1 = pres || preq || _rat || _iat */
 	swap56(pres, p1);
 	swap56(preq, p1 + 7);
 	p1[14] = _rat;
@@ -113,24 +113,24 @@ static int smp_c1(struct crypto_blkcipher *tfm, u8 k[16], u8 r[16],
 
 	memset(p2, 0, 16);
 
-	
+	/* p2 = padding || ia || ra */
 	baswap((bdaddr_t *) (p2 + 4), ia);
 	baswap((bdaddr_t *) (p2 + 10), ra);
 
-	
+	/* res = r XOR p1 */
 	u128_xor((u128 *) res, (u128 *) r, (u128 *) p1);
 
-	
+	/* res = e(k, res) */
 	err = smp_e(tfm, k, res);
 	if (err) {
 		BT_ERR("Encrypt data error");
 		return err;
 	}
 
-	
+	/* res = res XOR p2 */
 	u128_xor((u128 *) res, (u128 *) res, (u128 *) p2);
 
-	
+	/* res = e(k, res) */
 	err = smp_e(tfm, k, res);
 	if (err)
 		BT_ERR("Encrypt data error");
@@ -143,7 +143,7 @@ static int smp_s1(struct crypto_blkcipher *tfm, u8 k[16],
 {
 	int err;
 
-	
+	/* Just least significant octets from r1 and r2 are considered */
 	memcpy(_r, r1 + 8, 8);
 	memcpy(_r + 8, r2 + 8, 8);
 
@@ -213,6 +213,7 @@ static __u8 authreq_to_seclevel(__u8 authreq)
 static __u8 seclevel_to_authreq(__u8 level)
 {
 	switch (level) {
+	case BT_SECURITY_VERY_HIGH:
 	case BT_SECURITY_HIGH:
 		return SMP_AUTH_MITM | SMP_AUTH_BONDING;
 
@@ -250,7 +251,7 @@ static void build_pairing_cmd(struct l2cap_conn *conn,
 		return;
 	}
 
-	
+	/* Only request OOB if remote AND we support it */
 	if (req->oob_flag)
 		rsp->oob_flag = hcon->oob ? SMP_OOB_PRESENT :
 						SMP_OOB_NOT_PRESENT;
@@ -302,11 +303,13 @@ static int tk_request(struct l2cap_conn *conn, u8 remote_oob, u8 auth,
 	u32 passkey = 0;
 	int ret = 0;
 
-	
+	/* Initialize key to JUST WORKS */
 	memset(hcon->tk, 0, sizeof(hcon->tk));
 	hcon->tk_valid = FALSE;
 	hcon->auth = auth;
 
+	/* By definition, OOB data will be used if both sides have it available
+	 */
 	if (remote_oob && hcon->oob) {
 		method = SMP_REQ_OOB;
 		goto agent_request;
@@ -314,8 +317,8 @@ static int tk_request(struct l2cap_conn *conn, u8 remote_oob, u8 auth,
 
 	BT_DBG("tk_request: auth:%d lcl:%d rem:%d", auth, local_io, remote_io);
 
-	
-	
+	/* If neither side wants MITM, use JUST WORKS */
+	/* If either side has unknown io_caps, use JUST_WORKS */
 	if (!(auth & SMP_AUTH_MITM) ||
 			local_io > SMP_IO_KEYBOARD_DISPLAY ||
 			remote_io > SMP_IO_KEYBOARD_DISPLAY) {
@@ -324,8 +327,8 @@ static int tk_request(struct l2cap_conn *conn, u8 remote_oob, u8 auth,
 		return 0;
 	}
 
-	
-	
+	/* MITM is now officially requested, but not required */
+	/* Determine what we need (if anything) from the agent */
 	method = gen_method[local_io][remote_io];
 
 	BT_DBG("tk_method: %d", method);
@@ -333,7 +336,7 @@ static int tk_request(struct l2cap_conn *conn, u8 remote_oob, u8 auth,
 	if (method == SMP_JUST_WORKS || method == SMP_JUST_CFM)
 		hcon->auth &= ~SMP_AUTH_MITM;
 
-	
+	/* Don't bother confirming unbonded JUST_WORKS */
 	if (!(auth & SMP_AUTH_BONDING) && method == SMP_JUST_CFM) {
 		hcon->tk_valid = TRUE;
 		return 0;
@@ -351,6 +354,9 @@ static int tk_request(struct l2cap_conn *conn, u8 remote_oob, u8 auth,
 
 	if (method == SMP_CFM_PASSKEY) {
 		u8 key[16];
+		/* Generate a passkey for display. It is not valid until
+		 * confirmed.
+		 */
 		memset(key, 0, sizeof(key));
 		get_random_bytes(&passkey, sizeof(passkey));
 		passkey %= 1000000;
@@ -441,6 +447,8 @@ int le_user_confirm_reply(struct hci_conn *hcon, u16 mgmt_op, void *cp)
 		smp_send_cmd(conn, SMP_CMD_PAIRING_FAIL, sizeof(reason),
 								&reason);
 		del_timer(&hcon->smp_timer);
+		if (hcon->disconn_cfm_cb)
+			hcon->disconn_cfm_cb(hcon, SMP_UNSPECIFIED);
 		clear_bit(HCI_CONN_ENCRYPT_PEND, &hcon->pend);
 		mgmt_auth_failed(hcon->hdev->id, conn->dst, reason);
 		hci_conn_put(hcon);
@@ -467,14 +475,14 @@ static u8 smp_cmd_pairing_req(struct l2cap_conn *conn, struct sk_buff *skb)
 	skb_pull(skb, sizeof(*req));
 
 	if (req->oob_flag && hcon->oob) {
-		
+		/* By definition, OOB data pairing will have MITM protection */
 		auth = req->auth_req | SMP_AUTH_MITM;
 	} else if (req->auth_req & SMP_AUTH_BONDING) {
-		
+		/* We will attempt MITM for all Bonding attempts */
 		auth = SMP_AUTH_BONDING | SMP_AUTH_MITM;
 	}
 
-	
+	/* We didn't start the pairing, so no requirements */
 	build_pairing_cmd(conn, req, &rsp, auth);
 
 	key_size = min(req->max_key_size, rsp.max_key_size);
@@ -485,7 +493,7 @@ static u8 smp_cmd_pairing_req(struct l2cap_conn *conn, struct sk_buff *skb)
 	if (ret)
 		return SMP_UNSPECIFIED;
 
-	
+	/* Request setup of TK */
 	ret = tk_request(conn, req->oob_flag, auth, rsp.io_capability,
 							req->io_capability);
 	if (ret)
@@ -538,7 +546,7 @@ static u8 smp_cmd_pairing_rsp(struct l2cap_conn *conn, struct sk_buff *skb)
 
 	hcon->cfm_pending = TRUE;
 
-	
+	/* Can't compose response until we have been confirmed */
 	if (!hcon->tk_valid)
 		return 0;
 
@@ -706,10 +714,6 @@ static u8 smp_cmd_security_req(struct l2cap_conn *conn, struct sk_buff *skb)
 invalid_key:
 	hcon->sec_req = FALSE;
 
-	
-	hci_le_conn_update(hcon, SMP_MIN_CONN_INTERVAL, SMP_MAX_CONN_INTERVAL,
-			SMP_MAX_CONN_LATENCY, SMP_SUPERVISION_TIMEOUT);
-
 	skb_pull(skb, sizeof(*rp));
 
 	memset(&cp, 0, sizeof(cp));
@@ -755,8 +759,7 @@ int smp_conn_security(struct l2cap_conn *conn, __u8 sec_level)
 
 	hcon->smp_conn = conn;
 	hcon->pending_sec_level = sec_level;
-
-	if ((hcon->link_mode & HCI_LM_MASTER) && !hcon->sec_req) {
+	if (hcon->link_mode & HCI_LM_MASTER) {
 		struct link_key *key;
 
 		key = hci_find_link_key_type(hcon->hdev, conn->dst,
@@ -770,11 +773,6 @@ int smp_conn_security(struct l2cap_conn *conn, __u8 sec_level)
 
 	if (hcon->link_mode & HCI_LM_MASTER) {
 		struct smp_cmd_pairing cp;
-
-		
-		hci_le_conn_update(hcon, SMP_MIN_CONN_INTERVAL,
-				SMP_MAX_CONN_INTERVAL, SMP_MAX_CONN_LATENCY,
-				SMP_SUPERVISION_TIMEOUT);
 
 		build_pairing_cmd(conn, &cp, NULL, authreq);
 		hcon->preq[0] = SMP_CMD_PAIRING_REQ;
@@ -910,7 +908,7 @@ int smp_sig_channel(struct l2cap_conn *conn, struct sk_buff *skb)
 	case SMP_CMD_IDENT_INFO:
 	case SMP_CMD_IDENT_ADDR_INFO:
 	case SMP_CMD_SIGN_INFO:
-		
+		/* Just ignored */
 		reason = 0;
 		break;
 
@@ -950,7 +948,7 @@ static int smp_distribute_keys(struct l2cap_conn *conn, __u8 force)
 
 	rsp = (void *) &hcon->prsp[1];
 
-	
+	/* The responder sends its keys first */
 	if (!force && hcon->out && (rsp->resp_key_dist & 0x07))
 		return 0;
 
@@ -993,12 +991,12 @@ static int smp_distribute_keys(struct l2cap_conn *conn, __u8 force)
 		struct smp_cmd_ident_addr_info addrinfo;
 		struct smp_cmd_ident_info idinfo;
 
-		
+		/* Send a dummy key */
 		get_random_bytes(idinfo.irk, sizeof(idinfo.irk));
 
 		smp_send_cmd(conn, SMP_CMD_IDENT_INFO, sizeof(idinfo), &idinfo);
 
-		
+		/* Just public address */
 		memset(&addrinfo, 0, sizeof(addrinfo));
 		bacpy(&addrinfo.bdaddr, conn->src);
 
@@ -1011,7 +1009,7 @@ static int smp_distribute_keys(struct l2cap_conn *conn, __u8 force)
 	if (*keydist & SMP_DIST_SIGN) {
 		struct smp_cmd_sign_info sign;
 
-		
+		/* Send a dummy key */
 		get_random_bytes(sign.csrk, sizeof(sign.csrk));
 
 		smp_send_cmd(conn, SMP_CMD_SIGN_INFO, sizeof(sign), &sign);
@@ -1050,7 +1048,7 @@ int smp_link_encrypt_cmplt(struct l2cap_conn *conn, u8 status, u8 encrypt)
 	if (!status && encrypt && !hcon->sec_req)
 		return smp_distribute_keys(conn, 0);
 
-	
+	/* Fall back to Pairing request if failed a Link Security request */
 	else if (hcon->sec_req  && (status || !encrypt))
 		smp_conn_security(conn, hcon->pending_sec_level);
 

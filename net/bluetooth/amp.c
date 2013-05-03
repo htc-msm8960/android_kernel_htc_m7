@@ -1,5 +1,5 @@
 /*
-   Copyright (c) 2010-2011 Code Aurora Forum.  All rights reserved.
+   Copyright (c) 2010-2012 The Linux Foundation.  All rights reserved.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License version 2 and
@@ -12,7 +12,6 @@
 */
 
 #include <linux/interrupt.h>
-
 #include <linux/module.h>
 #include <linux/types.h>
 #include <linux/errno.h>
@@ -89,15 +88,15 @@ static struct amp_mgr *get_amp_mgr_sk(struct sock *sk)
 	return found;
 }
 
-static struct amp_mgr *get_create_amp_mgr(struct l2cap_conn *conn,
+static struct amp_mgr *get_create_amp_mgr(struct hci_conn *hcon,
 						struct sk_buff *skb)
 {
 	struct amp_mgr *mgr;
 
 	write_lock(&amp_mgr_list_lock);
 	list_for_each_entry(mgr, &amp_mgr_list, list) {
-		if (mgr->l2cap_conn == conn) {
-			BT_DBG("conn %p found %p", conn, mgr);
+		if (mgr->l2cap_conn == hcon->l2cap_data) {
+			BT_DBG("found %p", mgr);
 			write_unlock(&amp_mgr_list_lock);
 			goto gc_finished;
 		}
@@ -108,13 +107,13 @@ static struct amp_mgr *get_create_amp_mgr(struct l2cap_conn *conn,
 	if (!mgr)
 		return NULL;
 
-	mgr->l2cap_conn = conn;
+	mgr->l2cap_conn = hcon->l2cap_data;
 	mgr->next_ident = 1;
 	INIT_LIST_HEAD(&mgr->ctx_list);
 	rwlock_init(&mgr->ctx_list_lock);
 	mgr->skb = skb;
-	BT_DBG("conn %p mgr %p", conn, mgr);
-	mgr->a2mp_sock = open_fixed_channel(conn->src, conn->dst);
+	BT_DBG("hcon %p mgr %p", hcon, mgr);
+	mgr->a2mp_sock = open_fixed_channel(&hcon->hdev->bdaddr, &hcon->dst);
 	if (!mgr->a2mp_sock) {
 		kfree(mgr);
 		return NULL;
@@ -376,13 +375,11 @@ static void send_a2mp_change_notify(void)
 {
 	struct amp_mgr *mgr;
 
-	read_lock(&amp_mgr_list_lock);
 	list_for_each_entry(mgr, &amp_mgr_list, list) {
 		if (mgr->discovered)
 			send_a2mp_cl(mgr, next_ident(mgr),
 					A2MP_CHANGE_NOTIFY, 0, NULL);
 	}
-	read_unlock(&amp_mgr_list_lock);
 }
 
 static inline int discover_req(struct amp_mgr *mgr, struct sk_buff *skb)
@@ -435,8 +432,8 @@ static inline int change_notify(struct amp_mgr *mgr, struct sk_buff *skb)
 		cl = (struct a2mp_cl *) skb_pull(skb, sizeof(*cl));
 	}
 
-	
-	
+	/* TODO find controllers in manager that were not on received */
+	/*      controller list and destroy them */
 	send_a2mp_cmd(mgr, hdr->ident, A2MP_CHANGE_RSP, 0, NULL);
 
 	return 0;
@@ -486,7 +483,7 @@ static void create_physical(struct l2cap_conn *conn, struct sock *sk)
 	struct amp_ctx *ctx = NULL;
 
 	BT_DBG("conn %p", conn);
-	mgr = get_create_amp_mgr(conn, NULL);
+	mgr = get_create_amp_mgr(conn->hcon, NULL);
 	if (!mgr)
 		goto cp_finished;
 	BT_DBG("mgr %p", mgr);
@@ -516,7 +513,7 @@ static void accept_physical(struct l2cap_conn *lcon, u8 id, struct sock *sk)
 	if (!hdev)
 		goto ap_finished;
 	BT_DBG("hdev %p", hdev);
-	mgr = get_create_amp_mgr(lcon, NULL);
+	mgr = get_create_amp_mgr(lcon->hcon, NULL);
 	if (!mgr)
 		goto ap_finished;
 	BT_DBG("mgr %p", mgr);
@@ -611,7 +608,7 @@ static u8 getampassoc_handler(struct amp_ctx *ctx, u8 evt_type, void *data)
 				rsp.status = 0;
 				goto gaa_finished;
 			}
-			
+			/* more assoc data to read */
 			cp.phy_handle = 0;
 			cp.len_so_far = ctx->d.gaa.len_so_far;
 			cp.max_len = ctx->hdev->amp_assoc_size;
@@ -796,12 +793,13 @@ ps_finished:
 static u8 amp_next_handle;
 static inline u8 physlink_handle(struct hci_dev *hdev)
 {
-	
+	/* TODO amp_next_handle should be part of hci_dev */
 	if (amp_next_handle == 0)
 		amp_next_handle = 1;
 	return amp_next_handle++;
 }
 
+/* Start an Accept Physical Link sequence */
 static int createphyslink_req(struct amp_mgr *mgr, struct sk_buff *skb)
 {
 	struct a2mp_cmd_hdr *hdr = (struct a2mp_cmd_hdr *) skb->data;
@@ -814,7 +812,7 @@ static int createphyslink_req(struct amp_mgr *mgr, struct sk_buff *skb)
 	skb_pull(skb, sizeof(*req));
 	BT_DBG("local_id %d, remote_id %d", req->local_id, req->remote_id);
 
-	
+	/* initialize the context */
 	ctx = create_ctx(AMP_ACCEPTPHYSLINK, AMP_APL_INIT);
 	if (!ctx)
 		return -ENOMEM;
@@ -822,7 +820,7 @@ static int createphyslink_req(struct amp_mgr *mgr, struct sk_buff *skb)
 	ctx->d.apl.remote_id = req->local_id;
 	ctx->id = req->remote_id;
 
-	
+	/* add the supplied remote assoc to the context */
 	ctx->d.apl.remote_assoc = kmalloc(skb->len, GFP_ATOMIC);
 	if (ctx->d.apl.remote_assoc)
 		memcpy(ctx->d.apl.remote_assoc, skb->data, skb->len);
@@ -851,17 +849,17 @@ static u8 acceptphyslink_handler(struct amp_ctx *ctx, u8 evt_type, void *data)
 
 	BT_DBG("state %d", ctx->state);
 	result = -EINVAL;
-	rsp.status = 1;        
+	rsp.status = 1;        /* Invalid Controller ID */
 	if (!ctx->hdev || !test_bit(HCI_UP, &ctx->hdev->flags))
 		goto apl_finished;
 	if (evt_type == AMP_KILLED) {
 		result = -EAGAIN;
-		rsp.status = 4;        
+		rsp.status = 4;        /* Disconnect request received */
 		goto apl_finished;
 	}
 	if (!ctx->d.apl.remote_assoc) {
 		result = -ENOMEM;
-		rsp.status = 2;        
+		rsp.status = 2;        /* Unable to Start */
 		goto apl_finished;
 	}
 
@@ -874,7 +872,7 @@ static u8 acceptphyslink_handler(struct amp_ctx *ctx, u8 evt_type, void *data)
 					ctx->d.apl.remote_id);
 		if (conn) {
 			result = -EEXIST;
-			rsp.status = 5;   
+			rsp.status = 5;   /* Already Exists */
 			goto apl_finished;
 		}
 
@@ -902,7 +900,7 @@ static u8 acceptphyslink_handler(struct amp_ctx *ctx, u8 evt_type, void *data)
 			} else {
 				BT_DBG("COLLISION WINNER");
 				result = -EISCONN;
-				rsp.status = 3;    
+				rsp.status = 3;    /* Collision */
 				goto apl_finished;
 			}
 		}
@@ -911,7 +909,7 @@ static u8 acceptphyslink_handler(struct amp_ctx *ctx, u8 evt_type, void *data)
 						&acp.key_len, &acp.type);
 		if (result) {
 			BT_DBG("SECURITY");
-			rsp.status = 6;    
+			rsp.status = 6;    /* Security Violation */
 			goto apl_finished;
 		}
 
@@ -926,14 +924,14 @@ static u8 acceptphyslink_handler(struct amp_ctx *ctx, u8 evt_type, void *data)
 	case AMP_APL_APL_STATUS:
 		if (cs->status != 0)
 			goto apl_finished;
-		
+		/* PAL will accept link, send a2mp response */
 		rsp.local_id = ctx->id;
 		rsp.remote_id = ctx->d.apl.remote_id;
 		rsp.status = 0;
 		send_a2mp_cmd(ctx->mgr, ctx->d.apl.req_ident,
 				A2MP_CREATEPHYSLINK_RSP, sizeof(rsp), &rsp);
 
-		
+		/* send the first assoc fragment */
 		wcp.phy_handle = ctx->d.apl.phy_handle;
 		wcp.len_so_far = cpu_to_le16(ctx->d.apl.len_so_far);
 		wcp.rem_len = cpu_to_le16(ctx->d.apl.rem_len);
@@ -946,19 +944,19 @@ static u8 acceptphyslink_handler(struct amp_ctx *ctx, u8 evt_type, void *data)
 		break;
 
 	case AMP_APL_WRA_COMPLETE:
-		
+		/* received write remote amp assoc command complete event */
 		wrp = (struct hci_rp_write_remote_amp_assoc *) skb->data;
 		if (wrp->status != 0)
 			goto apl_finished;
 		if (wrp->phy_handle != ctx->d.apl.phy_handle)
 			goto apl_finished;
-		
+		/* update progress */
 		frag_len = min_t(u16, 248, ctx->d.apl.rem_len);
 		ctx->d.apl.len_so_far += frag_len;
 		ctx->d.apl.rem_len -= frag_len;
 		if (ctx->d.apl.rem_len > 0) {
 			u8 *assoc;
-			
+			/* another assoc fragment to send */
 			wcp.phy_handle = ctx->d.apl.phy_handle;
 			wcp.len_so_far = cpu_to_le16(ctx->d.apl.len_so_far);
 			wcp.rem_len = cpu_to_le16(ctx->d.apl.rem_len);
@@ -968,14 +966,14 @@ static u8 acceptphyslink_handler(struct amp_ctx *ctx, u8 evt_type, void *data)
 			hci_send_cmd(ctx->hdev, ctx->opcode, 5+frag_len, &wcp);
 			break;
 		}
-		
+		/* wait for physical link complete event */
 		ctx->state = AMP_APL_PL_COMPLETE;
 		ctx->evt_type = AMP_HCI_EVENT;
 		ctx->evt_code = HCI_EV_PHYS_LINK_COMPLETE;
 		break;
 
 	case AMP_APL_PL_COMPLETE:
-		
+		/* physical link complete event received */
 		if (skb->len < sizeof(*ev))
 			goto apl_finished;
 		ev = (struct hci_ev_phys_link_complete *) skb->data;
@@ -1035,6 +1033,8 @@ static u8 createphyslink_handler(struct amp_ctx *ctx, u8 evt_type, void *data)
 	struct sk_buff *skb = data;
 	struct a2mp_cmd_hdr *hdr;
 	struct hci_ev_cmd_status *cs = data;
+	struct amp_ctx *cplctx;
+	struct a2mp_discover_req dreq;
 	struct a2mp_discover_rsp *drsp;
 	u16 *efm;
 	struct a2mp_getinfo_req greq;
@@ -1074,8 +1074,19 @@ static u8 createphyslink_handler(struct amp_ctx *ctx, u8 evt_type, void *data)
 
 	switch (ctx->state) {
 	case AMP_CPL_INIT:
-		result = -EAGAIN;
-		goto cpl_finished;
+		cplctx = get_ctx_type(ctx, AMP_CREATEPHYSLINK);
+		if (cplctx) {
+			BT_DBG("deferred to %p", cplctx);
+			cplctx->deferred = ctx;
+			break;
+		}
+		ctx->state = AMP_CPL_DISC_RSP;
+		ctx->evt_type = AMP_A2MP_RSP;
+		ctx->rsp_ident = next_ident(ctx->mgr);
+		dreq.mtu = cpu_to_le16(L2CAP_A2MP_DEFAULT_MTU);
+		dreq.ext_feat = 0;
+		send_a2mp_cmd(ctx->mgr, ctx->rsp_ident, A2MP_DISCOVER_REQ,
+							sizeof(dreq), &dreq);
 		break;
 
 	case AMP_CPL_DISC_RSP:
@@ -1100,6 +1111,9 @@ static u8 createphyslink_handler(struct amp_ctx *ctx, u8 evt_type, void *data)
 		}
 		cl = (struct a2mp_cl *) efm;
 
+		/* find the first remote and local controller with the
+		 * same type
+		 */
 		greq.id = 0;
 		result = -ENODEV;
 		while (skb->len >= sizeof(*cl)) {
@@ -1160,10 +1174,10 @@ static u8 createphyslink_handler(struct amp_ctx *ctx, u8 evt_type, void *data)
 
 		ctx->d.cpl.max_len = ctrl->max_assoc_size;
 
-		
+		/* setup up GAA request */
 		areq.id = ctx->d.cpl.remote_id;
 
-		
+		/* advance context state */
 		ctx->state = AMP_CPL_GAA_RSP;
 		ctx->evt_type = AMP_A2MP_RSP;
 		ctx->rsp_ident = next_ident(ctx->mgr);
@@ -1179,7 +1193,7 @@ static u8 createphyslink_handler(struct amp_ctx *ctx, u8 evt_type, void *data)
 		if (arsp->status != 0)
 			goto cpl_finished;
 
-		
+		/* store away remote assoc */
 		assoc = (u8 *) skb_pull(skb, sizeof(*arsp));
 		ctx->d.cpl.len_so_far = 0;
 		ctx->d.cpl.rem_len = hdr->len - sizeof(*arsp);
@@ -1190,7 +1204,7 @@ static u8 createphyslink_handler(struct amp_ctx *ctx, u8 evt_type, void *data)
 		memcpy(rassoc, assoc, ctx->d.cpl.rem_len);
 		ctx->d.cpl.remote_assoc = rassoc;
 
-		
+		/* set up CPL command */
 		ctx->d.cpl.phy_handle = physlink_handle(ctx->hdev);
 		cp.phy_handle = ctx->d.cpl.phy_handle;
 		if (physlink_security(ctx->mgr->l2cap_conn->hcon, cp.data,
@@ -1199,7 +1213,7 @@ static u8 createphyslink_handler(struct amp_ctx *ctx, u8 evt_type, void *data)
 			goto cpl_finished;
 		}
 
-		
+		/* advance context state */
 		ctx->state = AMP_CPL_CPL_STATUS;
 		ctx->evt_type = AMP_HCI_CMD_STATUS;
 		ctx->opcode = HCI_OP_CREATE_PHYS_LINK;
@@ -1207,10 +1221,10 @@ static u8 createphyslink_handler(struct amp_ctx *ctx, u8 evt_type, void *data)
 		break;
 
 	case AMP_CPL_CPL_STATUS:
-		
+		/* received create physical link command status */
 		if (cs->status != 0)
 			goto cpl_finished;
-		
+		/* send the first assoc fragment */
 		wcp.phy_handle = ctx->d.cpl.phy_handle;
 		wcp.len_so_far = ctx->d.cpl.len_so_far;
 		wcp.rem_len = cpu_to_le16(ctx->d.cpl.rem_len);
@@ -1223,7 +1237,7 @@ static u8 createphyslink_handler(struct amp_ctx *ctx, u8 evt_type, void *data)
 		break;
 
 	case AMP_CPL_WRA_COMPLETE:
-		
+		/* received write remote amp assoc command complete event */
 		if (skb->len < sizeof(*wrp))
 			goto cpl_finished;
 		wrp = (struct hci_rp_write_remote_amp_assoc *) skb->data;
@@ -1232,12 +1246,12 @@ static u8 createphyslink_handler(struct amp_ctx *ctx, u8 evt_type, void *data)
 		if (wrp->phy_handle != ctx->d.cpl.phy_handle)
 			goto cpl_finished;
 
-		
+		/* update progress */
 		frag_len = min_t(u16, 248, ctx->d.cpl.rem_len);
 		ctx->d.cpl.len_so_far += frag_len;
 		ctx->d.cpl.rem_len -= frag_len;
 		if (ctx->d.cpl.rem_len > 0) {
-			
+			/* another assoc fragment to send */
 			wcp.phy_handle = ctx->d.cpl.phy_handle;
 			wcp.len_so_far = cpu_to_le16(ctx->d.cpl.len_so_far);
 			wcp.rem_len = cpu_to_le16(ctx->d.cpl.rem_len);
@@ -1248,19 +1262,24 @@ static u8 createphyslink_handler(struct amp_ctx *ctx, u8 evt_type, void *data)
 			hci_send_cmd(ctx->hdev, ctx->opcode, 5+frag_len, &wcp);
 			break;
 		}
-		
+		/* now wait for channel selected event */
 		ctx->state = AMP_CPL_CHANNEL_SELECT;
 		ctx->evt_type = AMP_HCI_EVENT;
 		ctx->evt_code = HCI_EV_CHANNEL_SELECTED;
 		break;
 
 	case AMP_CPL_CHANNEL_SELECT:
-		
+		/* received channel selection event */
 		if (skb->len < sizeof(*cev))
 			goto cpl_finished;
 		cev = (void *) skb->data;
+/* TODO - PK This check is valid but Libra PAL returns 0 for handle during
+			Create Physical Link collision scenario
+		if (cev->phy_handle != ctx->d.cpl.phy_handle)
+			goto cpl_finished;
+*/
 
-		
+		/* request the first local assoc fragment */
 		rcp.phy_handle = ctx->d.cpl.phy_handle;
 		rcp.len_so_far = 0;
 		rcp.max_len = ctx->d.cpl.max_len;
@@ -1276,7 +1295,7 @@ static u8 createphyslink_handler(struct amp_ctx *ctx, u8 evt_type, void *data)
 		break;
 
 	case AMP_CPL_RLA_COMPLETE:
-		
+		/* received read local amp assoc command complete event */
 		if (skb->len < 4)
 			goto cpl_finished;
 		rrp = (struct hci_rp_read_local_amp_assoc *) skb->data;
@@ -1291,13 +1310,13 @@ static u8 createphyslink_handler(struct amp_ctx *ctx, u8 evt_type, void *data)
 		if (ctx->d.cpl.len_so_far + rem_len > ctx->d.cpl.max_len)
 			goto cpl_finished;
 
-		
+		/* save this fragment in context */
 		lassoc = ctx->d.cpl.local_assoc + ctx->d.cpl.len_so_far;
 		memcpy(lassoc, rrp->frag, frag_len);
 		ctx->d.cpl.len_so_far += frag_len;
 		rem_len -= frag_len;
 		if (rem_len > 0) {
-			
+			/* request another local assoc fragment */
 			rcp.phy_handle = ctx->d.cpl.phy_handle;
 			rcp.len_so_far = ctx->d.cpl.len_so_far;
 			rcp.max_len = ctx->d.cpl.max_len;
@@ -1305,7 +1324,7 @@ static u8 createphyslink_handler(struct amp_ctx *ctx, u8 evt_type, void *data)
 		} else {
 			creq.local_id = ctx->id;
 			creq.remote_id = ctx->d.cpl.remote_id;
-			
+			/* wait for A2MP rsp AND phys link complete event */
 			ctx->state = AMP_CPL_PL_COMPLETE;
 			ctx->evt_type = AMP_A2MP_RSP | AMP_HCI_EVENT;
 			ctx->rsp_ident = next_ident(ctx->mgr);
@@ -1318,7 +1337,7 @@ static u8 createphyslink_handler(struct amp_ctx *ctx, u8 evt_type, void *data)
 
 	case AMP_CPL_PL_COMPLETE:
 		if (evt_type == AMP_A2MP_RSP) {
-			
+			/* create physical link response received */
 			ctx->evt_type &= ~AMP_A2MP_RSP;
 			if (skb->len < sizeof(*crsp))
 				goto cpl_finished;
@@ -1330,14 +1349,14 @@ static u8 createphyslink_handler(struct amp_ctx *ctx, u8 evt_type, void *data)
 				break;
 			}
 
-			
+			/* notify Qualcomm PAL */
 			if (ctx->hdev->manufacturer == 0x001d)
 				hci_send_cmd(ctx->hdev,
 					hci_opcode_pack(0x3f, 0x00), 0, NULL);
 		}
 		if (evt_type == AMP_HCI_EVENT) {
 			ctx->evt_type &= ~AMP_HCI_EVENT;
-			
+			/* physical link complete event received */
 			if (skb->len < sizeof(*pev))
 				goto cpl_finished;
 			pev = (void *) skb->data;
@@ -1407,7 +1426,7 @@ static int disconnphyslink_req(struct amp_mgr *mgr, struct sk_buff *skb)
 		(int) rsp.local_id, (int) rsp.remote_id);
 	hdev = hci_dev_get(rsp.local_id);
 	if (!hdev) {
-		rsp.status = 1; 
+		rsp.status = 1; /* Invalid Controller ID */
 		goto dpl_finished;
 	}
 	BT_DBG("hdev %p", hdev);
@@ -1420,7 +1439,7 @@ static int disconnphyslink_req(struct amp_mgr *mgr, struct sk_buff *skb)
 			rsp.status = 0;
 			goto dpl_finished;
 		}
-		rsp.status = 2;  
+		rsp.status = 2;  /* No Physical Link exists */
 		goto dpl_finished;
 	}
 	BT_DBG("conn %p", conn);
@@ -1515,7 +1534,7 @@ static inline int a2mp_rsp(struct amp_mgr *mgr, struct sk_buff *skb)
 	struct a2mp_cmd_hdr *hdr = (struct a2mp_cmd_hdr *) skb->data;
 	u16 hdr_len = le16_to_cpu(hdr->len);
 
-	
+	/* find context waiting for A2MP rsp with this rsp's identifier */
 	BT_DBG("ident %d code %d", hdr->ident, hdr->code);
 	ctx = get_ctx_a2mp(mgr, hdr->ident);
 	if (ctx) {
@@ -1530,6 +1549,7 @@ static inline int a2mp_rsp(struct amp_mgr *mgr, struct sk_buff *skb)
 	return 0;
 }
 
+/* L2CAP-A2MP interface */
 
 static void a2mp_receive(struct sock *sk, struct sk_buff *skb)
 {
@@ -1601,6 +1621,7 @@ a2mp_finished:
 	}
 }
 
+/* L2CAP-A2MP interface */
 
 static int send_a2mp(struct socket *sock, u8 *data, int len)
 {
@@ -1618,7 +1639,7 @@ static void data_ready_worker(struct work_struct *w)
 	struct sock *sk = work->sk;
 	struct sk_buff *skb;
 
-	
+	/* skb_dequeue() is thread-safe */
 	while ((skb = skb_dequeue(&sk->sk_receive_queue))) {
 		a2mp_receive(sk, skb);
 		kfree_skb(skb);
@@ -1649,7 +1670,7 @@ static void state_change_worker(struct work_struct *w)
 	struct amp_mgr *mgr;
 	switch (work->sk->sk_state) {
 	case BT_CONNECTED:
-		
+		/* socket is up */
 		BT_DBG("CONNECTED");
 		mgr = get_amp_mgr_sk(work->sk);
 		if (mgr) {
@@ -1663,7 +1684,7 @@ static void state_change_worker(struct work_struct *w)
 		break;
 
 	case BT_CLOSED:
-		
+		/* connection is gone */
 		BT_DBG("CLOSED");
 		mgr = get_amp_mgr_sk(work->sk);
 		if (mgr) {
@@ -1675,7 +1696,7 @@ static void state_change_worker(struct work_struct *w)
 		break;
 
 	default:
-		
+		/* something else happened */
 		break;
 	}
 	sock_put(work->sk);
@@ -1751,12 +1772,13 @@ static struct socket *open_fixed_channel(bdaddr_t *src, bdaddr_t *dst)
 static void conn_ind_worker(struct work_struct *w)
 {
 	struct amp_work_conn_ind *work = (struct amp_work_conn_ind *) w;
-	struct l2cap_conn *conn = work->conn;
+	struct hci_conn *hcon = work->hcon;
 	struct sk_buff *skb = work->skb;
 	struct amp_mgr *mgr;
 
-	mgr = get_create_amp_mgr(conn, skb);
+	mgr = get_create_amp_mgr(hcon, skb);
 	BT_DBG("mgr %p", mgr);
+	hci_conn_put(hcon);
 	kfree(work);
 }
 
@@ -1780,21 +1802,26 @@ static void accept_physical_worker(struct work_struct *w)
 	kfree(work);
 }
 
+/* L2CAP Fixed Channel interface */
 
-void amp_conn_ind(struct l2cap_conn *conn, struct sk_buff *skb)
+void amp_conn_ind(struct hci_conn *hcon, struct sk_buff *skb)
 {
 	struct amp_work_conn_ind *work;
-	BT_DBG("conn %p, skb %p", conn, skb);
+	BT_DBG("hcon %p, skb %p", hcon, skb);
 	work = kmalloc(sizeof(*work), GFP_ATOMIC);
 	if (work) {
 		INIT_WORK((struct work_struct *) work, conn_ind_worker);
-		work->conn = conn;
+		hci_conn_hold(hcon);
+		work->hcon = hcon;
 		work->skb = skb;
-		if (queue_work(amp_workqueue, (struct work_struct *) work) == 0)
+		if (!queue_work(amp_workqueue, (struct work_struct *) work)) {
+			hci_conn_put(hcon);
 			kfree(work);
+		}
 	}
 }
 
+/* L2CAP Physical Link interface */
 
 void amp_create_physical(struct l2cap_conn *conn, struct sock *sk)
 {
@@ -1832,6 +1859,7 @@ void amp_accept_physical(struct l2cap_conn *conn, u8 id, struct sock *sk)
 	}
 }
 
+/* HCI interface */
 
 static void amp_cmd_cmplt_worker(struct work_struct *w)
 {
@@ -1981,6 +2009,7 @@ static int amp_dev_event(struct notifier_block *this, unsigned long event,
 }
 
 
+/* L2CAP module init continued */
 
 static struct notifier_block amp_notifier = {
 	.notifier_call = amp_dev_event

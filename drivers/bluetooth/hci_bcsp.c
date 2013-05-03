@@ -49,8 +49,8 @@
 
 #define VERSION "0.3"
 
-static bool txcrc = 1;
-static bool hciextn = 1;
+static int txcrc = 1;
+static int hciextn = 1;
 
 #define BCSP_TXWINSIZE	4
 
@@ -692,7 +692,7 @@ static int bcsp_open(struct hci_uart *hu)
 
 	BT_DBG("hu %p", hu);
 
-	bcsp = kzalloc(sizeof(*bcsp), GFP_KERNEL);
+	bcsp = kzalloc(sizeof(*bcsp), GFP_ATOMIC);
 	if (!bcsp)
 		return -ENOMEM;
 
@@ -756,8 +756,8 @@ int __exit bcsp_deinit(void)
 	return hci_uart_unregister_proto(&bcsp);
 }
 
-module_param(txcrc, bool, 0644);
+module_param(txcrc, int, 0644);
 MODULE_PARM_DESC(txcrc, "Transmit CRC with every BCSP packet");
 
-module_param(hciextn, bool, 0644);
+module_param(hciextn, int, 0644);
 MODULE_PARM_DESC(hciextn, "Convert HCI Extensions into BCSP packets");
