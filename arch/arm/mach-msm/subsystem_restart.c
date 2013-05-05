@@ -470,30 +470,11 @@ static void __subsystem_restart(struct subsys_data *subsys)
 int subsystem_restart(const char *subsys_name)
 {
 	struct subsys_data *subsys;
-	
-	#if defined(CONFIG_ARCH_APQ8064) && defined(CONFIG_USB_EHCI_MSM_HSIC)
-	extern bool ehci_hsic_is_2nd_enum_done(void);
-	#endif 
-	
 
 	if (!subsys_name) {
 		pr_err("Invalid subsystem name.\n");
 		return -EINVAL;
 	}
-
-	
-	#if defined(CONFIG_ARCH_APQ8064) && defined(CONFIG_USB_EHCI_MSM_HSIC)
-	if (strcmp(subsys_name, EXTERNAL_MODEM) == 0) {
-		if (!ehci_hsic_is_2nd_enum_done()) {
-			pr_err("%s: 2nd enum is not done !!!\n", __func__);
-			return -EINVAL;
-		}
-		else {
-			pr_info("%s: 2nd enum is done\n", __func__);
-		}
-	}
-	#endif 
-	
 
 	pr_info("Restart sequence requested for %s, restart_level = %d.\n",
 		subsys_name, restart_level);

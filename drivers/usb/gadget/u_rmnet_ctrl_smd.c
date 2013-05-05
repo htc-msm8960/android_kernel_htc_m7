@@ -48,7 +48,7 @@ struct smd_ch_info {
 	struct rmnet_ctrl_port	*port;
 
 	int			cbits_tomodem;
-	
+	/* stats */
 	unsigned long		to_modem;
 	unsigned long		to_host;
 };
@@ -68,6 +68,7 @@ static struct rmnet_ctrl_ports {
 } ctrl_smd_ports[NR_CTRL_SMD_PORTS];
 
 
+/*---------------misc functions---------------- */
 
 static struct rmnet_ctrl_pkt *alloc_rmnet_ctrl_pkt(unsigned len, gfp_t flags)
 {
@@ -94,7 +95,9 @@ static void free_rmnet_ctrl_pkt(struct rmnet_ctrl_pkt *pkt)
 	kfree(pkt);
 }
 
+/*--------------------------------------------- */
 
+/*---------------control/smd channel functions---------------- */
 
 static void grmnet_ctrl_smd_read_w(struct work_struct *w)
 {
@@ -122,7 +125,7 @@ static void grmnet_ctrl_smd_read_w(struct work_struct *w)
 
 		len = smd_read(c->ch, buf, sz);
 
-		
+		/* send it to USB here */
 		spin_lock_irqsave(&port->port_lock, flags);
 		if (port->port_usb && port->port_usb->send_cpkt_response) {
 			port->port_usb->send_cpkt_response(port->port_usb,
@@ -195,7 +198,7 @@ grmnet_ctrl_smd_send_cpkt_tomodem(u8 portno,
 	spin_lock_irqsave(&port->port_lock, flags);
 	c = &port->ctrl_ch;
 
-	
+	/* drop cpkt if ch is not open */
 	if (!test_bit(CH_OPENED, &c->flags)) {
 		free_rmnet_ctrl_pkt(cpkt);
 		spin_unlock_irqrestore(&port->port_lock, flags);
@@ -233,6 +236,10 @@ gsmd_ctrl_send_cbits_tomodem(void *gptr, u8 portno, int cbits)
 	cbits = cbits & RMNET_CTRL_DTR;
 	c = &port->ctrl_ch;
 
+	/* host driver will only send DTR, but to have generic
+	 * set and clear bit implementation using two separate
+	 * checks
+	 */
 	if (cbits & RMNET_CTRL_DTR)
 		set_bits |= TIOCM_DTR;
 	else
@@ -311,6 +318,7 @@ static void grmnet_ctrl_smd_notify(void *p, unsigned event)
 		break;
 	}
 }
+/*------------------------------------------------------------ */
 
 static void grmnet_ctrl_smd_connect_w(struct work_struct *w)
 {
@@ -328,7 +336,7 @@ static void grmnet_ctrl_smd_connect_w(struct work_struct *w)
 	ret = smd_open(c->name, &c->ch, port, grmnet_ctrl_smd_notify);
 	if (ret) {
 		if (ret == -EAGAIN) {
-			
+			/* port not ready  - retry */
 			pr_debug("%s: SMD port not ready - rescheduling:%s err:%d\n",
 					__func__, c->name, ret);
 			queue_delayed_work(grmnet_ctrl_wq, &port->connect_w,
@@ -416,7 +424,7 @@ void gsmd_ctrl_disconnect(struct grmnet *gr, u8 port_num)
 	spin_unlock_irqrestore(&port->port_lock, flags);
 
 	if (test_and_clear_bit(CH_OPENED, &c->flags))
-		
+		/* send dtr zero */
 		smd_tiocmset(c->ch, c->cbits_tomodem, ~c->cbits_tomodem);
 
 	if (c->ch) {
@@ -442,7 +450,7 @@ static int grmnet_ctrl_smd_ch_probe(struct platform_device *pdev)
 		if (!strncmp(c->name, pdev->name, SMD_CH_MAX_LEN)) {
 			set_bit(CH_READY, &c->flags);
 
-			
+			/* if usb is online, try opening smd_ch */
 			spin_lock_irqsave(&port->port_lock, flags);
 			if (port->port_usb)
 				queue_delayed_work(grmnet_ctrl_wq,

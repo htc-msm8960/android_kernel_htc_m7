@@ -66,6 +66,7 @@ struct bam_data_port {
 
 struct bam_data_port *bam2bam_data_ports[BAM2BAM_DATA_N_PORTS];
 
+/*------------data_path----------------------------*/
 
 static void bam_data_endless_rx_complete(struct usb_ep *ep,
 					 struct usb_request *req)
@@ -110,7 +111,7 @@ static void bam2bam_data_disconnect_work(struct work_struct *w)
 
 	pr_info("Enter");
 
-	
+	/* disable endpoints */
 	if (!port->port_usb || !port->port_usb->out || !port->port_usb->in) {
 		pr_err("port_usb->out/in == NULL. Exit");
 		return;
@@ -177,7 +178,7 @@ static void bam2bam_data_connect_work(struct work_struct *w)
 				 MSM_VENDOR_ID) & ~SPS_PARAMS_TBE;
 	d->tx_req->udc_priv = sps_params;
 
-	
+	/* queue in & out requests */
 	bam_data_start_endless_rx(port);
 	bam_data_start_endless_tx(port);
 
@@ -204,7 +205,7 @@ static int bam2bam_data_port_alloc(int portno)
 	INIT_WORK(&port->connect_w, bam2bam_data_connect_work);
 	INIT_WORK(&port->disconnect_w, bam2bam_data_disconnect_work);
 
-	
+	/* data ch */
 	d = &port->data_ch;
 	d->port = port;
 	bam2bam_data_ports[portno] = port;

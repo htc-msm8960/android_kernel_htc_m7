@@ -20,108 +20,27 @@
 #include <linux/ratelimit.h>
 #include <linux/debugfs.h>
 #include "rmnet_usb_ctrl.h"
-#include <mach/board_htc.h>
 
 #define DEVICE_NAME			"hsicctl"
 #define NUM_CTRL_CHANNELS		4
 #define DEFAULT_READ_URB_LENGTH		0x1000
 
+/*Output control lines.*/
 #define ACM_CTRL_DTR		BIT(0)
 #define ACM_CTRL_RTS		BIT(1)
 
 
+/*Input control lines.*/
 #define ACM_CTRL_DSR		BIT(0)
 #define ACM_CTRL_CTS		BIT(1)
 #define ACM_CTRL_RI		BIT(2)
 #define ACM_CTRL_CD		BIT(3)
 
+/* polling interval for Interrupt ep */
 #define HS_INTERVAL		7
 #define FS_LS_INTERVAL		3
 
-static bool usb_pm_debug_enabled = false;
-static bool enable_ctl_msg_debug = false;
-
-
-#ifdef HTC_LOG_RMNET_USB_CTRL
-#define RMNET_DBG_MSG_LEN   100		
-#define RMNET_DBG_MAX_MSG   512		
-#define TIME_BUF_LEN  20
-
-static bool enable_dbg_rmnet_usb_ctrl = false;
-
-static struct {
-	char     (buf[RMNET_DBG_MAX_MSG])[RMNET_DBG_MSG_LEN];   
-	unsigned idx;   
-	rwlock_t lck;   
-} dbg_rmnet_usb_ctrl = {
-	.idx = 0,
-	.lck = __RW_LOCK_UNLOCKED(lck)
-};
-
-static char *rmnet_usb_ctrl_get_timestamp(char *tbuf)
-{
-	unsigned long long t;
-	unsigned long nanosec_rem;
-
-	t = cpu_clock(smp_processor_id());
-	nanosec_rem = do_div(t, 1000000000)/1000;
-	scnprintf(tbuf, TIME_BUF_LEN, "[%5lu.%06lu] ", (unsigned long)t,
-		nanosec_rem);
-	return tbuf;
-}
-
-static void rmnet_usb_ctrl_dbg_inc(unsigned* idx)
-{
-	*idx = (*idx + 1) & (RMNET_DBG_MAX_MSG-1);
-}
-
-static void log_rmnet_usb_ctrl_event(struct usb_interface	*intf, char * event, size_t size)
-{
-	unsigned long flags;
-	char tbuf[TIME_BUF_LEN];
-	__u8  bInterfaceNumber = 0;
-
-	if (!enable_dbg_rmnet_usb_ctrl)
-		return;
-
-	if (intf && intf->cur_altsetting)
-		bInterfaceNumber = intf->cur_altsetting->desc.bInterfaceNumber;
-
-	write_lock_irqsave(&dbg_rmnet_usb_ctrl.lck, flags);
-	scnprintf(dbg_rmnet_usb_ctrl.buf[dbg_rmnet_usb_ctrl.idx], RMNET_DBG_MSG_LEN,
-		"%s:[%u]%s : %u", rmnet_usb_ctrl_get_timestamp(tbuf), bInterfaceNumber, event, size);
-	rmnet_usb_ctrl_dbg_inc(&dbg_rmnet_usb_ctrl.idx);
-	write_unlock_irqrestore(&dbg_rmnet_usb_ctrl.lck, flags);
-}
-#endif	
-
-#ifdef HTC_DEBUG_QMI_STUCK
-#define QMI_TX_NO_CB_TIMEOUT 5000
-#define QMI_RX_NO_CB_TIMEOUT 3000
-#include <linux/usb/hcd.h>
-
-struct ctrl_write_context {
-	struct timer_list timer;
-	unsigned long start_jiffies;
-	struct rmnet_ctrl_dev *dev;
-};
-
-static void do_mdm_restart_delay_work_fn(struct work_struct *work)
-{
-	extern struct usb_hcd *mdm_hsic_usb_hcd;
-
-	if (mdm_hsic_usb_hcd)
-	{
-		if (&mdm_hsic_usb_hcd->ssr_work) {
-			pr_info("[%s] queue_work ssr_work !!!\n", __func__);
-			queue_work(system_nrt_wq, &mdm_hsic_usb_hcd->ssr_work);
-		}
-	}
-}
-static DECLARE_DELAYED_WORK(do_mdm_restart_delay_work, do_mdm_restart_delay_work_fn);
-#endif	
-
-
+/*echo modem_wait > /sys/class/hsicctl/hsicctlx/modem_wait*/
 static ssize_t modem_wait_store(struct device *d, struct device_attribute *attr,
 		const char *buf, size_t n)
 {
@@ -162,9 +81,9 @@ enum {
 
 #define DUMP_BUFFER(prestr, cnt, buf) \
 do { \
-	if ((ctl_msg_dbg_mask & MSM_USB_CTL_DUMP_BUFFER) || enable_ctl_msg_debug) \
+	if (ctl_msg_dbg_mask & MSM_USB_CTL_DUMP_BUFFER) \
 			print_hex_dump(KERN_INFO, prestr, DUMP_PREFIX_NONE, \
-					16, 1, buf, 11, false); \
+					16, 1, buf, cnt, false); \
 } while (0)
 
 #define DBG(x...) \
@@ -203,101 +122,6 @@ static int is_dev_connected(struct rmnet_ctrl_dev *dev)
 	return 0;
 }
 
-#ifdef HTC_DEBUG_QMI_STUCK
-static struct urb	*expired_rcvurb = NULL;
-static void kill_rcv_urb_delay_work_fn(struct work_struct *work)
-{
-	if (expired_rcvurb) {
-		pr_info("[RMNET][%s] +kill urb %p\n", __func__, expired_rcvurb);
-		usb_kill_urb(expired_rcvurb);
-		pr_info("[RMNET][%s] -kill urb %p\n", __func__, expired_rcvurb);
-	}
-
-#if 0
-	
-	schedule_delayed_work_on(0, &do_mdm_restart_delay_work, msecs_to_jiffies(3000));
-#endif
-}
-static DECLARE_DELAYED_WORK(kill_rcv_urb_delay_work, kill_rcv_urb_delay_work_fn);
-
-static void rmnet_usb_ctrl_read_timer_expire(unsigned long data)
-{
-	struct rmnet_ctrl_dev *dev = (struct rmnet_ctrl_dev *)data;
-
-	dev_err(dev->devicep, "[RMNET][%s] %s rcv_timer expire !!! \n", __func__, dev->name);
-
-	
-	#ifdef HTC_LOG_RMNET_USB_CTRL
-	if (dev)
-		log_rmnet_usb_ctrl_event(dev->intf, "Rx timeout", 0);
-	#endif	
-	
-
-	expired_rcvurb = dev->rcvurb;
-	schedule_delayed_work_on(0, &kill_rcv_urb_delay_work, 10);
-}
-#endif	
-static void get_encap_work(struct work_struct *w)
-{
-	struct usb_device	*udev;
-	struct rmnet_ctrl_dev	*dev =
-			container_of(w, struct rmnet_ctrl_dev, get_encap_work);
-	int			status;
-
-	udev = interface_to_usbdev(dev->intf);
-
-	status = usb_autopm_get_interface(dev->intf);
-	if (status < 0 && status != -EAGAIN && status != -EACCES) {
-		dev->get_encap_failure_cnt++;
-		return;
-	}
-
-#ifdef HTC_LOG_RMNET_USB_CTRL
-	log_rmnet_usb_ctrl_event(dev->intf, "Rx", DEFAULT_READ_URB_LENGTH);
-#endif	
-
-#ifdef HTC_DEBUG_QMI_STUCK
-	mod_timer(&dev->rcv_timer, jiffies + msecs_to_jiffies(QMI_RX_NO_CB_TIMEOUT));
-#endif	
-
-	usb_fill_control_urb(dev->rcvurb, udev,
-				usb_rcvctrlpipe(udev, 0),
-				(unsigned char *)dev->in_ctlreq,
-				dev->rcvbuf,
-				DEFAULT_READ_URB_LENGTH,
-				resp_avail_cb, dev);
-
-
-	usb_anchor_urb(dev->rcvurb, &dev->rx_submitted);
-	status = usb_submit_urb(dev->rcvurb, GFP_KERNEL);
-	if (status) {
-#ifdef HTC_DEBUG_QMI_STUCK
-		del_timer(&dev->rcv_timer);
-#endif	
-		dev->get_encap_failure_cnt++;
-		usb_unanchor_urb(dev->rcvurb);
-		usb_autopm_put_interface(dev->intf);
-		dev_err(dev->devicep,
-		"%s: Error submitting Read URB %d\n", __func__, status);
-		goto resubmit_int_urb;
-	}
-
-	return;
-
-resubmit_int_urb:
-	
-	if (!dev->inturb->anchor) {
-		usb_anchor_urb(dev->inturb, &dev->rx_submitted);
-		status = usb_submit_urb(dev->inturb, GFP_KERNEL);
-		if (status) {
-			usb_unanchor_urb(dev->inturb);
-				dev_err(dev->devicep, "%s: Error re-submitting Int URB %d\n",
-				__func__, status);
-		}
-	}
-
-}
-
 static void notification_available_cb(struct urb *urb)
 {
 	int				status;
@@ -309,22 +133,21 @@ static void notification_available_cb(struct urb *urb)
 
 	switch (urb->status) {
 	case 0:
-	
-	case -ENOENT:
-		
+		/*success*/
 		break;
 
-	
+	/*do not resubmit*/
 	case -ESHUTDOWN:
+	case -ENOENT:
 	case -ECONNRESET:
 	case -EPROTO:
 		return;
 	case -EPIPE:
 		pr_err_ratelimited("%s: Stall on int endpoint\n", __func__);
-		
+		/* TBD : halt to be cleared in work */
 		return;
 
-	
+	/*resubmit*/
 	case -EOVERFLOW:
 		pr_err_ratelimited("%s: Babble error happened\n", __func__);
 	default:
@@ -333,28 +156,29 @@ static void notification_available_cb(struct urb *urb)
 		goto resubmit_int_urb;
 	}
 
-	if (!urb->actual_length)
-		return;
-
 	ctrl = urb->transfer_buffer;
 
 	switch (ctrl->bNotificationType) {
 	case USB_CDC_NOTIFY_RESPONSE_AVAILABLE:
 		dev->resp_avail_cnt++;
-		
-#ifdef HTC_PM_DBG
-		if (usb_pm_debug_enabled)
-			usb_mark_intf_last_busy(dev->intf, false);
-#endif
-		
+		usb_fill_control_urb(dev->rcvurb, udev,
+					usb_rcvctrlpipe(udev, 0),
+					(unsigned char *)dev->in_ctlreq,
+					dev->rcvbuf,
+					DEFAULT_READ_URB_LENGTH,
+					resp_avail_cb, dev);
+
+		status = usb_submit_urb(dev->rcvurb, GFP_ATOMIC);
+		if (status) {
+			dev_err(dev->devicep,
+			"%s: Error submitting Read URB %d\n", __func__, status);
+			goto resubmit_int_urb;
+		}
+
 		usb_mark_last_busy(udev);
-		queue_work(dev->wq, &dev->get_encap_work);
 
 		if (!dev->resp_available) {
 			dev->resp_available = true;
-			
-			if (dev->intf)
-				dev_info(&dev->intf->dev, "%s[%d]:dev->resp_available:%d\n", __func__, __LINE__, dev->resp_available);
 			wake_up(&dev->open_wait_queue);
 		}
 
@@ -365,20 +189,10 @@ static void notification_available_cb(struct urb *urb)
 	}
 
 resubmit_int_urb:
-	
-#ifdef HTC_PM_DBG
-	if (usb_pm_debug_enabled)
-		usb_mark_intf_last_busy(dev->intf, false);
-#endif
-	
-	usb_mark_last_busy(udev);
-	usb_anchor_urb(urb, &dev->rx_submitted);
 	status = usb_submit_urb(urb, GFP_ATOMIC);
-	if (status) {
-		usb_unanchor_urb(urb);
+	if (status)
 		dev_err(dev->devicep, "%s: Error re-submitting Int URB %d\n",
 		__func__, status);
-	}
 
 	return;
 }
@@ -394,40 +208,20 @@ static void resp_avail_cb(struct urb *urb)
 
 	udev = interface_to_usbdev(dev->intf);
 
-	usb_autopm_put_interface_async(dev->intf);
-#ifdef HTC_DEBUG_QMI_STUCK
-	del_timer(&dev->rcv_timer);
-	if (expired_rcvurb == urb) {
-		expired_rcvurb = NULL;
-		dev_err(&(dev->intf->dev), "[RMNET] %s(%d) urb->status:%d urb->actual_length:%u !!!\n", __func__, __LINE__, urb->status, urb->actual_length);
-		if (urb->status != 0) {
-			if (urb->actual_length > 0) {
-				dev_err(&(dev->intf->dev), "[RMNET] %s(%d) set urb->status 0 !!!\n", __func__, __LINE__);
-				urb->status = 0;
-			}
-			else {
-				dev_err(&(dev->intf->dev), "[RMNET] %s(%d) dev->inturb->anchor(%x) !!!\n", __func__, __LINE__, (dev->inturb) ? (unsigned int)dev->inturb->anchor : (unsigned int)(0xffffffff));
-				dev_err(&(dev->intf->dev), "[RMNET] %s(%d) goto resubmit_int_urb !!!\n", __func__, __LINE__);
-				goto resubmit_int_urb;
-			}
-		}
-	}
-#endif	
-
 	switch (urb->status) {
 	case 0:
-		
+		/*success*/
 		dev->get_encap_resp_cnt++;
 		break;
 
-	
+	/*do not resubmit*/
 	case -ESHUTDOWN:
 	case -ENOENT:
 	case -ECONNRESET:
 	case -EPROTO:
 		return;
 
-	
+	/*resubmit*/
 	case -EOVERFLOW:
 		pr_err_ratelimited("%s: Babble error happened\n", __func__);
 	default:
@@ -438,10 +232,6 @@ static void resp_avail_cb(struct urb *urb)
 
 	dev_dbg(dev->devicep, "Read %d bytes for %s\n",
 		urb->actual_length, dev->name);
-
-#ifdef HTC_LOG_RMNET_USB_CTRL
-	log_rmnet_usb_ctrl_event(dev->intf, "Rx cb", urb->actual_length);
-#endif	
 
 	cpkt = urb->transfer_buffer;
 	cpkt_size = urb->actual_length;
@@ -473,51 +263,40 @@ static void resp_avail_cb(struct urb *urb)
 	wake_up(&dev->read_wait_queue);
 
 resubmit_int_urb:
-	
-#ifdef HTC_PM_DBG
-	if (usb_pm_debug_enabled)
-		usb_mark_intf_last_busy(dev->intf, false);
-#endif
-	
-	
-	if (!dev->inturb->anchor) {
-		usb_mark_last_busy(udev);
-		usb_anchor_urb(dev->inturb, &dev->rx_submitted);
-		status = usb_submit_urb(dev->inturb, GFP_ATOMIC);
-		if (status) {
-			usb_unanchor_urb(dev->inturb);
-			dev_err(dev->devicep, "%s: Error re-submitting Int URB %d\n",
-				__func__, status);
-		}
-	}
+	/*re-submit int urb to check response available*/
+	usb_mark_last_busy(udev);
+	status = usb_submit_urb(dev->inturb, GFP_ATOMIC);
+	if (status)
+		dev_err(dev->devicep, "%s: Error re-submitting Int URB %d\n",
+			__func__, status);
 }
 
 int rmnet_usb_ctrl_start_rx(struct rmnet_ctrl_dev *dev)
 {
 	int	retval = 0;
 
-	usb_anchor_urb(dev->inturb, &dev->rx_submitted);
 	retval = usb_submit_urb(dev->inturb, GFP_KERNEL);
-	if (retval < 0) {
-		usb_unanchor_urb(dev->inturb);
-		dev_err(dev->devicep, "%s Intr submit %d\n", __func__,
-				retval);
-	}
+	if (retval < 0)
+		dev_err(dev->devicep, "%s Intr submit %d\n", __func__, retval);
 
 	return retval;
 }
 
-int rmnet_usb_ctrl_suspend(struct rmnet_ctrl_dev *dev)
- {
-	int ret = 0;
-	ret = work_busy(&dev->get_encap_work);
-	if (ret)
-		return -EBUSY;
+int rmnet_usb_ctrl_stop_rx(struct rmnet_ctrl_dev *dev)
+{
+	if (!is_dev_connected(dev)) {
+		dev_dbg(dev->devicep, "%s: Ctrl device disconnected\n",
+			__func__);
+		return -ENODEV;
+	}
 
-	usb_kill_anchored_urbs(&dev->rx_submitted);
+	dev_dbg(dev->devicep, "%s\n", __func__);
+
+	usb_kill_urb(dev->rcvurb);
+	usb_kill_urb(dev->inturb);
+
 	return 0;
 }
-
 
 static int rmnet_usb_ctrl_alloc_rx(struct rmnet_ctrl_dev *dev)
 {
@@ -540,13 +319,6 @@ static int rmnet_usb_ctrl_alloc_rx(struct rmnet_ctrl_dev *dev)
 		pr_err("%s: Error allocating setup packet buffer\n", __func__);
 		goto nomem;
 	}
-
-#ifdef HTC_DEBUG_QMI_STUCK
-	dev_err(dev->devicep, "%s init_timer rcv_timer\n", dev->name);
-	init_timer(&dev->rcv_timer);
-	dev->rcv_timer.function = rmnet_usb_ctrl_read_timer_expire;
-	dev->rcv_timer.data = (unsigned long)dev;
-#endif	
 
 	return 0;
 
@@ -575,61 +347,20 @@ static int rmnet_usb_ctrl_write_cmd(struct rmnet_ctrl_dev *dev)
 		NULL, 0, USB_CTRL_SET_TIMEOUT);
 }
 
-#ifdef HTC_DEBUG_QMI_STUCK
-
-static void rmnet_usb_ctrl_write_timer_expire(unsigned long data)
-{
-	struct urb *urb = (struct urb *)data;
-	struct ctrl_write_context *context = urb->context;
-	struct rmnet_ctrl_dev	*dev = context->dev;
-
-	pr_err("[%s] urb %p expired\n", __func__, urb);
-
-	
-	#ifdef HTC_LOG_RMNET_USB_CTRL
-	if (dev)
-		log_rmnet_usb_ctrl_event(dev->intf, "Tx timeout", 0);
-	#endif	
-	
-
-	
-	schedule_delayed_work_on(0, &do_mdm_restart_delay_work, 5);
-}
-#endif	
-
 static void ctrl_write_callback(struct urb *urb)
 {
-#ifdef HTC_DEBUG_QMI_STUCK
-	struct ctrl_write_context *context = urb->context;
-	struct rmnet_ctrl_dev	*dev = context->dev;
-#else 
 	struct rmnet_ctrl_dev	*dev = urb->context;
-#endif 
 
-#ifdef HTC_DEBUG_QMI_STUCK
-	del_timer(&context->timer);
-
-	if (unlikely(time_is_before_jiffies(context->start_jiffies + HZ)))
-		pr_err("[%s] urb %p takes %d msec to complete.\n", __func__,
-			urb, jiffies_to_msecs(jiffies - context->start_jiffies));
-#endif	
 	if (urb->status) {
 		dev->tx_ctrl_err_cnt++;
 		pr_debug_ratelimited("Write status/size %d/%d\n",
 				urb->status, urb->actual_length);
 	}
 
-#ifdef HTC_LOG_RMNET_USB_CTRL
-	log_rmnet_usb_ctrl_event(dev->intf, "Tx cb", urb->actual_length);
-#endif	
-
 	kfree(urb->setup_packet);
 	kfree(urb->transfer_buffer);
 	usb_free_urb(urb);
 	usb_autopm_put_interface_async(dev->intf);
-#ifdef HTC_DEBUG_QMI_STUCK
-	kfree(context);
-#endif	
 }
 
 static int rmnet_usb_ctrl_write(struct rmnet_ctrl_dev *dev, char *buf,
@@ -639,9 +370,6 @@ static int rmnet_usb_ctrl_write(struct rmnet_ctrl_dev *dev, char *buf,
 	struct urb		*sndurb;
 	struct usb_ctrlrequest	*out_ctlreq;
 	struct usb_device	*udev;
-#ifdef HTC_DEBUG_QMI_STUCK
-	struct ctrl_write_context *context;
-#endif	
 
 	if (!is_dev_connected(dev))
 		return -ENETRESET;
@@ -661,18 +389,7 @@ static int rmnet_usb_ctrl_write(struct rmnet_ctrl_dev *dev, char *buf,
 		return -ENOMEM;
 	}
 
-#ifdef HTC_DEBUG_QMI_STUCK
-	context = kmalloc(sizeof(struct ctrl_write_context), GFP_KERNEL);
-	if (!context) {
-		kfree(out_ctlreq);
-		usb_free_urb(sndurb);
-		dev_err(dev->devicep, "Error allocating private data\n");
-		return -ENOMEM;
-	}
-	context->dev = dev;
-#endif	
-
-	
+	/* CDC Send Encapsulated Request packet */
 	out_ctlreq->bRequestType = (USB_DIR_OUT | USB_TYPE_CLASS |
 			     USB_RECIP_INTERFACE);
 	out_ctlreq->bRequest = USB_CDC_SEND_ENCAPSULATED_COMMAND;
@@ -683,37 +400,22 @@ static int rmnet_usb_ctrl_write(struct rmnet_ctrl_dev *dev, char *buf,
 	usb_fill_control_urb(sndurb, udev,
 			     usb_sndctrlpipe(udev, 0),
 			     (unsigned char *)out_ctlreq, (void *)buf, size,
-#ifdef HTC_DEBUG_QMI_STUCK
-			     ctrl_write_callback, context);
-#else	
 			     ctrl_write_callback, dev);
-#endif	
 
 	result = usb_autopm_get_interface(dev->intf);
 	if (result < 0) {
 		dev_err(dev->devicep, "%s: Unable to resume interface: %d\n",
 			__func__, result);
 
+		/*
+		* Revisit:  if (result == -EPERM)
+		*		rmnet_usb_suspend(dev->intf, PMSG_SUSPEND);
+		*/
 
 		usb_free_urb(sndurb);
 		kfree(out_ctlreq);
-#ifdef HTC_DEBUG_QMI_STUCK
-		kfree(context);
-#endif	
 		return result;
 	}
-
-#ifdef HTC_LOG_RMNET_USB_CTRL
-	log_rmnet_usb_ctrl_event(dev->intf, "Tx", size);
-#endif	
-
-#ifdef HTC_DEBUG_QMI_STUCK
-	init_timer(&context->timer);
-	context->timer.function = rmnet_usb_ctrl_write_timer_expire;
-	context->timer.data = (unsigned long)sndurb;
-	context->start_jiffies = jiffies;
-	mod_timer(&context->timer, jiffies + msecs_to_jiffies(QMI_TX_NO_CB_TIMEOUT));
-#endif	
 
 	usb_anchor_urb(sndurb, &dev->tx_submitted);
 	dev->snd_encap_cmd_cnt++;
@@ -726,9 +428,6 @@ static int rmnet_usb_ctrl_write(struct rmnet_ctrl_dev *dev, char *buf,
 		usb_unanchor_urb(sndurb);
 		usb_free_urb(sndurb);
 		kfree(out_ctlreq);
-#ifdef HTC_DEBUG_QMI_STUCK
-		kfree(context);
-#endif	
 		return result;
 	}
 
@@ -747,13 +446,7 @@ static int rmnet_ctl_open(struct inode *inode, struct file *file)
 	if (dev->is_opened)
 		goto already_opened;
 
-	
-	if (dev->is_connected) {
-		if (dev->intf)
-			dev_info(&dev->intf->dev, "%s[%d]:mdm_wait_timeout:%d resp_available:%d\n", __func__, __LINE__, dev->mdm_wait_timeout, dev->resp_available);
-	}
-
-	
+	/*block open to get first response available from mdm*/
 	if (dev->mdm_wait_timeout && !dev->resp_available) {
 		retval = wait_event_interruptible_timeout(
 					dev->open_wait_queue,
@@ -772,22 +465,8 @@ static int rmnet_ctl_open(struct inode *inode, struct file *file)
 	}
 
 	if (!dev->resp_available) {
-		dev_err(dev->devicep, "%s: Connection timedout opening %s\n",
+		dev_dbg(dev->devicep, "%s: Connection timedout opening %s\n",
 					__func__, dev->name);
-
-#ifdef HTC_MDM_RESTART_IF_RMNET_OPEN_TIMEOUT
-		if (dev->is_connected) {
-			extern void htc_ehci_trigger_mdm_restart(void);
-
-			if (jiffies_to_msecs(jiffies - dev->connected_jiffies) > RMNET_OPEN_TIMEOUT_MS) {
-				dev_err(&dev->intf->dev, "%s[%d]:dev->connected_jiffies:%lu jiffies:%lu\n", __func__, __LINE__, dev->connected_jiffies, jiffies);
-				dev_err(&dev->intf->dev, "%s[%d]:htc_ehci_trigger_mdm_restart!!!\n", __func__, __LINE__);
-				htc_ehci_trigger_mdm_restart();
-				msleep(500);
-			}
-		}
-#endif	
-
 		return -ETIMEDOUT;
 	}
 
@@ -922,10 +601,6 @@ ctrl_read:
 			dev->name);
 	DUMP_BUFFER("Read: ", bytes_to_read, buf);
 
-#ifdef HTC_LOG_RMNET_USB_CTRL
-	log_rmnet_usb_ctrl_event(dev->intf, "Read", bytes_to_read);
-#endif	
-
 	return bytes_to_read;
 }
 
@@ -948,12 +623,8 @@ static ssize_t rmnet_ctl_write(struct file *file, const char __user * buf,
 	DBG("%s: Writing %i bytes on %s\n", __func__, size, dev->name);
 
 	wbuf = kmalloc(size , GFP_KERNEL);
-	if (!wbuf) {
-		dev_err(dev->devicep,
-			"%s(%d): kmalloc failed !!!\n",
-			__func__, __LINE__);
+	if (!wbuf)
 		return -ENOMEM;
-	}
 
 	status = copy_from_user(wbuf , buf, size);
 	if (status) {
@@ -981,10 +652,18 @@ static int rmnet_ctrl_tiocmset(struct rmnet_ctrl_dev *dev, unsigned int set,
 	if (set & TIOCM_DTR)
 		dev->cbits_tomdm |= ACM_CTRL_DTR;
 
+	/*
+	 * TBD if (set & TIOCM_RTS)
+	 *	dev->cbits_tomdm |= ACM_CTRL_RTS;
+	 */
 
 	if (clear & TIOCM_DTR)
 		dev->cbits_tomdm &= ~ACM_CTRL_DTR;
 
+	/*
+	 * (clear & TIOCM_RTS)
+	 *	dev->cbits_tomdm &= ~ACM_CTRL_RTS;
+	 */
 
 	mutex_unlock(&dev->dev_lock);
 
@@ -1007,7 +686,15 @@ static int rmnet_ctrl_tiocmget(struct rmnet_ctrl_dev *dev)
 
 	mutex_lock(&dev->dev_lock);
 	ret =
+	/*
+	 * TBD(dev->cbits_tolocal & ACM_CTRL_DSR ? TIOCM_DSR : 0) |
+	 * (dev->cbits_tolocal & ACM_CTRL_CTS ? TIOCM_CTS : 0) |
+	 */
 	(dev->cbits_tolocal & ACM_CTRL_CD ? TIOCM_CD : 0) |
+	/*
+	 * TBD (dev->cbits_tolocal & ACM_CTRL_RI ? TIOCM_RI : 0) |
+	 *(dev->cbits_tomdm & ACM_CTRL_RTS ? TIOCM_RTS : 0) |
+	*/
 	(dev->cbits_tomdm & ACM_CTRL_DTR ? TIOCM_DTR : 0);
 	mutex_unlock(&dev->dev_lock);
 
@@ -1070,10 +757,10 @@ int rmnet_usb_ctrl_probe(struct usb_interface *intf,
 	mutex_lock(&dev->dev_lock);
 	dev->intf = intf;
 
-	
+	/*TBD: for now just update CD status*/
 	dev->cbits_tolocal = ACM_CTRL_CD;
 
-	
+	/*send DTR high to modem*/
 	dev->cbits_tomdm = ACM_CTRL_DTR;
 	mutex_unlock(&dev->dev_lock);
 
@@ -1101,7 +788,7 @@ int rmnet_usb_ctrl_probe(struct usb_interface *intf,
 		return -ENOMEM;
 	}
 
-	
+	/*use max pkt size from ep desc*/
 	ep = &dev->intf->cur_altsetting->endpoint[0].desc;
 	wMaxPacketSize = le16_to_cpu(ep->wMaxPacketSize);
 
@@ -1129,24 +816,8 @@ int rmnet_usb_ctrl_probe(struct usb_interface *intf,
 			 dev->intbuf, wMaxPacketSize,
 			 notification_available_cb, dev, interval);
 
-	
-#ifdef HTC_PM_DBG
-	if (usb_pm_debug_enabled)
-		usb_mark_intf_last_busy(dev->intf, false);
-#endif
-	
 	usb_mark_last_busy(udev);
-
-	
-	dev_info(&intf->dev, "%s[%d]:rmnet_usb_ctrl_start_rx dev->resp_available:%d\n", __func__, __LINE__, dev->resp_available);
-
 	ret = rmnet_usb_ctrl_start_rx(dev);
-
-#ifdef HTC_MDM_RESTART_IF_RMNET_OPEN_TIMEOUT
-	if (!ret)
-		dev->connected_jiffies = jiffies;
-#endif	
-
 	if (!ret)
 		dev->is_connected = true;
 
@@ -1155,10 +826,11 @@ int rmnet_usb_ctrl_probe(struct usb_interface *intf,
 
 void rmnet_usb_ctrl_disconnect(struct rmnet_ctrl_dev *dev)
 {
+	rmnet_usb_ctrl_stop_rx(dev);
 
 	mutex_lock(&dev->dev_lock);
 
-	
+	/*TBD: for now just update CD status*/
 	dev->cbits_tolocal = ~ACM_CTRL_CD;
 
 	dev->cbits_tomdm = ~ACM_CTRL_DTR;
@@ -1167,19 +839,13 @@ void rmnet_usb_ctrl_disconnect(struct rmnet_ctrl_dev *dev)
 
 	wake_up(&dev->read_wait_queue);
 
-	cancel_work_sync(&dev->get_encap_work);
-
-	usb_kill_anchored_urbs(&dev->tx_submitted);
-	usb_kill_anchored_urbs(&dev->rx_submitted);
-
 	usb_free_urb(dev->inturb);
 	dev->inturb = NULL;
 
 	kfree(dev->intbuf);
 	dev->intbuf = NULL;
 
-	
-	dev_info(&dev->intf->dev, "%s[%d]:dev->resp_available:%d\n", __func__, __LINE__, dev->resp_available);
+	usb_kill_anchored_urbs(&dev->tx_submitted);
 }
 
 #if defined(CONFIG_DEBUG_FS)
@@ -1213,7 +879,6 @@ static ssize_t rmnet_usb_ctrl_read_stats(struct file *file, char __user *ubuf,
 				"cbits_tomdm:              %d\n"
 				"mdm_wait_timeout:         %u\n"
 				"zlp_cnt:                  %u\n"
-				"get_encap_failure_cnt     %u\n"
 				"dev opened:               %s\n",
 				dev, dev->name,
 				dev->snd_encap_cmd_cnt,
@@ -1225,7 +890,6 @@ static ssize_t rmnet_usb_ctrl_read_stats(struct file *file, char __user *ubuf,
 				dev->cbits_tomdm,
 				dev->mdm_wait_timeout,
 				dev->zlp_cnt,
-				dev->get_encap_failure_cnt,
 				dev->is_opened ? "OPEN" : "CLOSE");
 
 	}
@@ -1294,19 +958,6 @@ int rmnet_usb_ctrl_init(void)
 	int			n;
 	int			status;
 
-	
-	if (get_radio_flag() & 0x0001)
-		usb_pm_debug_enabled  = true;
-
-	if (get_radio_flag() & 0x0002)
-		enable_ctl_msg_debug = true;
-	
-
-#ifdef HTC_LOG_RMNET_USB_CTRL
-	if (get_radio_flag() & 0x0008)
-		enable_dbg_rmnet_usb_ctrl = true;
-#endif	
-
 	for (n = 0; n < NUM_CTRL_CHANNELS; ++n) {
 
 		dev = kzalloc(sizeof(*dev), GFP_KERNEL);
@@ -1314,15 +965,8 @@ int rmnet_usb_ctrl_init(void)
 			status = -ENOMEM;
 			goto error0;
 		}
-		
+		/*for debug purpose*/
 		snprintf(dev->name, CTRL_DEV_MAX_LEN, "hsicctl%d", n);
-
-		dev->wq = create_singlethread_workqueue(dev->name);
-		if (!dev->wq) {
-			pr_err("unable to allocate workqueue");
-			kfree(dev);
-			goto error0;
-		}
 
 		mutex_init(&dev->dev_lock);
 		spin_lock_init(&dev->rx_lock);
@@ -1330,8 +974,6 @@ int rmnet_usb_ctrl_init(void)
 		init_waitqueue_head(&dev->open_wait_queue);
 		INIT_LIST_HEAD(&dev->rx_list);
 		init_usb_anchor(&dev->tx_submitted);
-		init_usb_anchor(&dev->rx_submitted);
-		INIT_WORK(&dev->get_encap_work, get_encap_work);
 
 		status = rmnet_usb_ctrl_alloc_rx(dev);
 		if (status < 0) {
@@ -1380,7 +1022,7 @@ int rmnet_usb_ctrl_init(void)
 			kfree(ctrl_dev[n]);
 			goto error2;
 		}
-		
+		/*create /sys/class/hsicctl/hsicctlx/modem_wait*/
 		status = device_create_file(ctrl_dev[n]->devicep,
 					&dev_attr_modem_wait);
 		if (status) {
@@ -1390,7 +1032,6 @@ int rmnet_usb_ctrl_init(void)
 			kfree(ctrl_dev[n]);
 			goto error2;
 		}
-
 		dev_set_drvdata(ctrl_dev[n]->devicep, ctrl_dev[n]);
 	}
 
@@ -1433,7 +1074,6 @@ void rmnet_usb_ctrl_exit(void)
 		device_remove_file(ctrl_dev[i]->devicep, &dev_attr_modem_wait);
 #endif
 		cdev_del(&ctrl_dev[i]->cdev);
-		destroy_workqueue(ctrl_dev[i]->wq);
 		kfree(ctrl_dev[i]);
 		ctrl_dev[i] = NULL;
 		device_destroy(ctrldev_classp, MKDEV(MAJOR(ctrldev_num), i));

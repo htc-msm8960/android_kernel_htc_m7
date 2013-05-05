@@ -465,17 +465,6 @@ asmlinkage void __exception_irq_entry gic_handle_irq(struct pt_regs *regs)
 					(void *)((unsigned long)msec_timestamp),
 					(void *)irqnr);
 				msm_watchdog_check_pet(timestamp);
-
-				
-				
-				#if defined(CONFIG_ARCH_APQ8064) && defined(CONFIG_USB_EHCI_MSM_HSIC)
-				{
-					extern void htc_hsic_wakeup_check(unsigned long long timestamp);
-					htc_hsic_wakeup_check(timestamp);
-				}
-				#endif	
-				
-				
 			} else {
 				uncached_logk_pc(LOGK_IRQ,
 					(void *)get_current_timestamp(),

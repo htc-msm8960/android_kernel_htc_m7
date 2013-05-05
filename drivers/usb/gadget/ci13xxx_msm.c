@@ -18,8 +18,6 @@
 #include <linux/usb/ulpi.h>
 #include <linux/gpio.h>
 
-#include <linux/usb/htc_info.h>
-static struct usb_info *the_usb_info;
 #include "ci13xxx_udc.c"
 
 #define MSM_USB_BASE	(udc->regs)
@@ -41,7 +39,8 @@ static irqreturn_t msm_udc_irq(int irq, void *data)
 
 static void ci13xxx_msm_suspend(void)
 {
-	USB_INFO("ci13xxx_msm_suspend\n");
+	struct device *dev = _udc->gadget.dev.parent;
+	dev_dbg(dev, "ci13xxx_msm_suspend\n");
 
 	if (_udc_ctxt.wake_irq && !_udc_ctxt.wake_irq_state) {
 		enable_irq_wake(_udc_ctxt.wake_irq);
@@ -52,7 +51,8 @@ static void ci13xxx_msm_suspend(void)
 
 static void ci13xxx_msm_resume(void)
 {
-	USB_INFO("ci13xxx_msm_resume\n");
+	struct device *dev = _udc->gadget.dev.parent;
+	dev_dbg(dev, "ci13xxx_msm_resume\n");
 
 	if (_udc_ctxt.wake_irq && _udc_ctxt.wake_irq_state) {
 		disable_irq_wake(_udc_ctxt.wake_irq);
@@ -63,28 +63,29 @@ static void ci13xxx_msm_resume(void)
 
 static void ci13xxx_msm_notify_event(struct ci13xxx *udc, unsigned event)
 {
+	struct device *dev = udc->gadget.dev.parent;
 
 	switch (event) {
 	case CI13XXX_CONTROLLER_RESET_EVENT:
-		USB_INFO("CI13XXX_CONTROLLER_RESET_EVENT received\n");
+		dev_info(dev, "CI13XXX_CONTROLLER_RESET_EVENT received\n");
 		writel(0, USB_AHBBURST);
 		writel_relaxed(0x08, USB_AHBMODE);
 		break;
 	case CI13XXX_CONTROLLER_DISCONNECT_EVENT:
-		USB_INFO("CI13XXX_CONTROLLER_DISCONNECT_EVENT received\n");
+		dev_info(dev, "CI13XXX_CONTROLLER_DISCONNECT_EVENT received\n");
 		ci13xxx_msm_resume();
 		break;
 	case CI13XXX_CONTROLLER_SUSPEND_EVENT:
-		USB_INFO("CI13XXX_CONTROLLER_SUSPEND_EVENT received\n");
+		dev_info(dev, "CI13XXX_CONTROLLER_SUSPEND_EVENT received\n");
 		ci13xxx_msm_suspend();
 		break;
 	case CI13XXX_CONTROLLER_RESUME_EVENT:
-		USB_INFO( "CI13XXX_CONTROLLER_RESUME_EVENT received\n");
+		dev_info(dev, "CI13XXX_CONTROLLER_RESUME_EVENT received\n");
 		ci13xxx_msm_resume();
 		break;
 
 	default:
-		USB_INFO("unknown ci13xxx_udc event\n");
+		dev_dbg(dev, "unknown ci13xxx_udc event\n");
 		break;
 	}
 }
@@ -163,13 +164,8 @@ static int ci13xxx_msm_probe(struct platform_device *pdev)
 {
 	struct resource *res;
 	int ret;
-	struct usb_info *ui;
 
 	dev_dbg(&pdev->dev, "ci13xxx_msm_probe\n");
-	ui = kzalloc(sizeof(struct usb_info), GFP_KERNEL);
-	if (!ui)
-		return -ENOMEM;
-	the_usb_info = ui;
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!res) {
@@ -211,7 +207,6 @@ static int ci13xxx_msm_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "request_irq failed\n");
 		goto gpio_uninstall;
 	}
-	INIT_DELAYED_WORK(&ui->chg_stop, usb_chg_stop);
 
 	pm_runtime_no_callbacks(&pdev->dev);
 	pm_runtime_enable(&pdev->dev);
@@ -228,21 +223,6 @@ iounmap:
 	return ret;
 }
 
-static void ci13xxx_msm_shutdown(struct platform_device *pdev)
-{
-	struct msm_otg *motg;
-	struct ci13xxx *udc = _udc;
-
-	if (!udc || !udc->transceiver)
-		return;
-
-	motg = container_of(udc->transceiver, struct msm_otg, phy);
-
-	if (!atomic_read(&motg->in_lpm))
-		ci13xxx_pullup(&udc->gadget, 0);
-
-}
-
 int ci13xxx_msm_remove(struct platform_device *pdev)
 {
 	pm_runtime_disable(&pdev->dev);
@@ -255,7 +235,6 @@ int ci13xxx_msm_remove(struct platform_device *pdev)
 
 static struct platform_driver ci13xxx_msm_driver = {
 	.probe = ci13xxx_msm_probe,
-	.shutdown = ci13xxx_msm_shutdown,
 	.driver = { .name = "msm_hsusb", },
 	.remove = ci13xxx_msm_remove,
 };

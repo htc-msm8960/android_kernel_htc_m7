@@ -115,28 +115,6 @@ static void diag_hsic_read_complete_callback(void *ctxt, char *buf,
 			pr_err("diag: Out of diagmem for HSIC\n");
 		} else {
 			DIAGFWD_9K_RAWDATA(buf, "9K", DIAG_DBG_READ);
-#if DIAG_XPST && defined(CONFIG_DIAGFWD_BRIDGE_CODE)
-			if ((pkt_hdr == DIAG_HEAD_OF_NEXT_PKT ||
-				(first_pkt == 1)) && actual_size > 0) {
-				if (unlikely(first_pkt == 1)) first_pkt = 0;
-				type = checkcmd_modem_epst(buf);
-				if (type) {
-					modem_to_userspace(buf, actual_size, type, 1);
-					pkt_hdr = DIAG_HEAD_OF_NEXT_PKT;
-					
-					diagmem_free(driver,
-						(unsigned char *)buf, POOL_TYPE_HSIC);
-					return;
-				}
-				pkt_hdr = DIAG_BODY_OF_NEXT_PKT;
-			}
-
-			if ((actual_size == 1 && *buf == CONTROL_CHAR) ||
-					((actual_size >= 2) &&
-					(*(buf+actual_size-1) == CONTROL_CHAR &&
-					 *(buf+actual_size-2) != ESC_CHAR)))
-				pkt_hdr = DIAG_HEAD_OF_NEXT_PKT;
-#endif
 			/*
 			 * Send data in buf to be written on the
 			 * appropriate device, e.g. USB MDM channel

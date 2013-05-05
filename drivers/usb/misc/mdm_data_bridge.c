@@ -20,7 +20,6 @@
 #include <linux/uaccess.h>
 #include <linux/ratelimit.h>
 #include <mach/usb_bridge.h>
-#include <mach/board_htc.h>
 
 #define MAX_RX_URBS			50
 #define RMNET_RX_BUFSIZE		2048
@@ -68,11 +67,11 @@ struct data_bridge {
 	unsigned int			bulk_out;
 	int				err;
 
-	
+	/* keep track of in-flight URBs */
 	struct usb_anchor		tx_active;
 	struct usb_anchor		rx_active;
 
-	
+	/* keep track of outgoing URBs during suspend */
 	struct usb_anchor		delayed;
 
 	struct list_head		rx_idle;
@@ -83,14 +82,14 @@ struct data_bridge {
 
 	struct bridge			*brdg;
 
-	
+	/* work queue function for handling halt conditions */
 	struct work_struct		kevent;
 
 	unsigned long			flags;
 
 	struct platform_device		*pdev;
 
-	
+	/* counters */
 	atomic_t			pending_txurbs;
 	unsigned int			txurb_drp_cnt;
 	unsigned long			to_host;
@@ -103,10 +102,8 @@ struct data_bridge {
 
 static struct data_bridge	*__dev[MAX_BRIDGE_DEVICES];
 
+/* counter used for indexing data bridge devices */
 static int	ch_id;
-#define DUN_IFC_NUM 3
-static bool usb_diag_enable = false;
-static bool usb_pm_debug_enabled = false;
 
 static unsigned int get_timestamp(void);
 static void dbg_timestamp(char *, struct sk_buff *);
@@ -160,7 +157,7 @@ static void data_bridge_process_rx(struct work_struct *work)
 		dev->to_host++;
 		info = (struct timestamp_info *)skb->cb;
 		info->rx_done_sent = get_timestamp();
-		
+		/* hand off sk_buff to client,they'll need to free it */
 		retval = brdg->ops.send_pkt(brdg->ctx, skb, skb->len);
 		if (retval == -ENOTCONN || retval == -EINVAL) {
 			return;
@@ -200,7 +197,7 @@ static void data_bridge_read_cb(struct urb *urb)
 	skb_put(skb, urb->actual_length);
 
 	switch (urb->status) {
-	case 0: 
+	case 0: /* success */
 		queue = 1;
 		info->rx_done = get_timestamp();
 		spin_lock(&dev->rx_done.lock);
@@ -208,21 +205,21 @@ static void data_bridge_read_cb(struct urb *urb)
 		spin_unlock(&dev->rx_done.lock);
 		break;
 
-	
+	/*do not resubmit*/
 	case -EPIPE:
 		set_bit(RX_HALT, &dev->flags);
 		dev_err(&dev->intf->dev, "%s: epout halted\n", __func__);
 		schedule_work(&dev->kevent);
-		
+		/* FALLTHROUGH */
 	case -ESHUTDOWN:
-	case -ENOENT: 
-	case -ECONNRESET: 
+	case -ENOENT: /* suspended */
+	case -ECONNRESET: /* unplug */
 	case -EPROTO:
 		dev_kfree_skb_any(skb);
 		break;
 
-	
-	case -EOVERFLOW: 
+	/*resubmit */
+	case -EOVERFLOW: /*babble error*/
 	default:
 		queue = 1;
 		dev_kfree_skb_any(skb);
@@ -269,12 +266,6 @@ static int submit_rx_urb(struct data_bridge *dev, struct urb *rx_urb,
 	if (retval)
 		goto fail;
 
-	
-#ifdef HTC_PM_DBG
-	if (usb_pm_debug_enabled)
-		usb_mark_intf_last_busy(dev->intf, false);
-#endif
-	
 	usb_mark_last_busy(dev->udev);
 	return 0;
 fail:
@@ -427,7 +418,7 @@ static void data_bridge_write_cb(struct urb *urb)
 	pr_debug("%s: dev:%p\n", __func__, dev);
 
 	switch (urb->status) {
-	case 0: 
+	case 0: /*success*/
 		dbg_timestamp("UL", skb);
 		break;
 	case -EPROTO:
@@ -437,12 +428,12 @@ static void data_bridge_write_cb(struct urb *urb)
 		set_bit(TX_HALT, &dev->flags);
 		dev_err(&dev->intf->dev, "%s: epout halted\n", __func__);
 		schedule_work(&dev->kevent);
-		
+		/* FALLTHROUGH */
 	case -ESHUTDOWN:
-	case -ENOENT: 
-	case -ECONNRESET: 
-	case -EOVERFLOW: 
-		
+	case -ENOENT: /* suspended */
+	case -ECONNRESET: /* unplug */
+	case -EOVERFLOW: /*babble error*/
+		/* FALLTHROUGH */
 	default:
 		pr_debug_ratelimited("%s: non zero urb status = %d\n",
 					__func__, urb->status);
@@ -453,7 +444,7 @@ static void data_bridge_write_cb(struct urb *urb)
 
 	pending = atomic_dec_return(&dev->pending_txurbs);
 
-	
+	/*flow ctrl*/
 	if (brdg && fctrl_support && pending <= fctrl_dis_thld &&
 		test_and_clear_bit(TX_THROTTLED, &brdg->flags)) {
 		pr_debug_ratelimited("%s: disable flow ctrl: pend urbs:%u\n",
@@ -499,12 +490,14 @@ int data_bridge_write(unsigned int id, struct sk_buff *skb)
 		goto error;
 	}
 
-	
+	/* store dev pointer in skb */
 	info->dev = dev;
 	info->tx_queued = get_timestamp();
 
 	usb_fill_bulk_urb(txurb, dev->udev, dev->bulk_out,
 			skb->data, skb->len, data_bridge_write_cb, skb);
+
+	txurb->transfer_flags |= URB_ZERO_PACKET;
 
 	if (test_bit(SUSPENDED, &dev->flags)) {
 		usb_anchor_urb(txurb, &dev->delayed);
@@ -529,7 +522,7 @@ int data_bridge_write(unsigned int id, struct sk_buff *skb)
 	dev->to_modem++;
 	dev_dbg(&dev->intf->dev, "%s: pending_txurbs: %u\n", __func__, pending);
 
-	
+	/* flow control: last urb submitted but return -EBUSY */
 	if (fctrl_support && pending > fctrl_en_thld) {
 		set_bit(TX_THROTTLED, &brdg->flags);
 		dev->tx_throttled_cnt++;
@@ -566,7 +559,7 @@ static int data_bridge_resume(struct data_bridge *dev)
 			atomic_dec(&dev->pending_txurbs);
 			usb_unanchor_urb(urb);
 
-			
+			/* TODO: need to free urb data */
 			usb_scuttle_anchored_urbs(&dev->delayed);
 			break;
 		}
@@ -596,12 +589,6 @@ static int bridge_resume(struct usb_interface *iface)
 	}
 
 	return retval;
-}
-
-int bridge_reset_resume(struct usb_interface *intf)
-{
-	pr_info("%s intf %p\n", __func__, intf);
-	return bridge_resume(intf);
 }
 
 static int data_bridge_suspend(struct data_bridge *dev, pm_message_t message)
@@ -676,7 +663,7 @@ static int data_bridge_probe(struct usb_interface *iface,
 
 	__dev[id] = dev;
 
-	
+	/*allocate list of rx urbs*/
 	data_bridge_prepare_rx(dev);
 
 	platform_device_add(dev->pdev);
@@ -695,6 +682,7 @@ static struct timestamp_buf dbg_data = {
 	.lck = __RW_LOCK_UNLOCKED(lck)
 };
 
+/*get_timestamp - returns time of day in us */
 static unsigned int get_timestamp(void)
 {
 	struct timeval	tval;
@@ -704,7 +692,7 @@ static unsigned int get_timestamp(void)
 		return 0;
 
 	do_gettimeofday(&tval);
-	
+	/* 2^32 = 4294967296. Limit to 4096s. */
 	stamp = tval.tv_sec & 0xFFF;
 	stamp = stamp * 1000000 + tval.tv_usec;
 	return stamp;
@@ -715,6 +703,12 @@ static void dbg_inc(unsigned *idx)
 	*idx = (*idx + 1) & (DBG_DATA_MAX-1);
 }
 
+/**
+* dbg_timestamp - Stores timestamp values of a SKB life cycle
+*	to debug buffer
+* @event: "UL": Uplink Data
+* @skb: SKB used to store timestamp values to debug buffer
+*/
 static void dbg_timestamp(char *event, struct sk_buff * skb)
 {
 	unsigned long		flags;
@@ -736,6 +730,7 @@ static void dbg_timestamp(char *event, struct sk_buff * skb)
 	write_unlock_irqrestore(&dbg_data.lck, flags);
 }
 
+/* show_timestamp: displays the timestamp buffer */
 static ssize_t show_timestamp(struct file *file, char __user *ubuf,
 		size_t count, loff_t *ppos)
 {
@@ -931,13 +926,6 @@ bridge_probe(struct usb_interface *iface, const struct usb_device_id *id)
 	udev = interface_to_usbdev(iface);
 	usb_get_dev(udev);
 
-	
-	printk(KERN_INFO "%s: iface number is %d", __func__, iface_num);
-	if (!usb_diag_enable && iface_num == DUN_IFC_NUM && (board_mfg_mode() == 8 || board_mfg_mode() == 6 || board_mfg_mode() == 2)) {
-		printk(KERN_INFO "%s DUN channel is NOT enumed as bridge interface!!! MAY be switched to TTY interface!!!", __func__);
-		return -ENODEV;
-	}
-	
 	numends = iface->cur_altsetting->desc.bNumEndpoints;
 	for (i = 0; i < numends; i++) {
 		endpoint = iface->cur_altsetting->endpoint + i;
@@ -1002,15 +990,15 @@ static void bridge_disconnect(struct usb_interface *intf)
 	}
 
 	ch_id--;
-	ctrl_bridge_disconnect(dev->id);
+	ctrl_bridge_disconnect(ch_id);
 	platform_device_unregister(dev->pdev);
 	usb_set_intfdata(intf, NULL);
-	__dev[dev->id] = NULL;
+	__dev[ch_id] = NULL;
 
 	cancel_work_sync(&dev->process_rx_w);
 	cancel_work_sync(&dev->kevent);
 
-	
+	/*free rx urbs*/
 	head = &dev->rx_idle;
 	spin_lock_irqsave(&dev->rx_done.lock, flags);
 	while (!list_empty(head)) {
@@ -1024,6 +1012,7 @@ static void bridge_disconnect(struct usb_interface *intf)
 	kfree(dev);
 }
 
+/*bit position represents interface number*/
 #define PID9001_IFACE_MASK	0xC
 #define PID9034_IFACE_MASK	0xC
 #define PID9048_IFACE_MASK	0x18
@@ -1043,7 +1032,7 @@ static const struct usb_device_id bridge_ids[] = {
 	.driver_info = PID904C_IFACE_MASK,
 	},
 
-	{ } 
+	{ } /* Terminating entry */
 };
 MODULE_DEVICE_TABLE(usb, bridge_ids);
 
@@ -1054,7 +1043,6 @@ static struct usb_driver bridge_driver = {
 	.id_table =		bridge_ids,
 	.suspend =		bridge_suspend,
 	.resume =		bridge_resume,
-	.reset_resume =		bridge_reset_resume,
 	.supports_autosuspend =	1,
 };
 
@@ -1062,14 +1050,6 @@ static int __init bridge_init(void)
 {
 	int	ret;
 
-	
-	if (get_radio_flag() & 0x20000)
-		usb_diag_enable = true;
-	
-	
-	if (get_radio_flag() & 0x0001)
-		usb_pm_debug_enabled = true;
-	
 	ret = usb_register(&bridge_driver);
 	if (ret) {
 		err("%s: unable to register mdm_bridge driver", __func__);

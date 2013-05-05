@@ -10,12 +10,50 @@
  * published by the Free Software Foundation.
  */
 
+/*
+ * Description: MIPS USB IP core family device controller
+ *              Currently it only supports IP part number CI13412
+ *
+ * This driver is composed of several blocks:
+ * - HW:     hardware interface
+ * - DBG:    debug facilities (optional)
+ * - UTIL:   utilities
+ * - ISR:    interrupts handling
+ * - ENDPT:  endpoint operations (Gadget API)
+ * - GADGET: gadget operations (Gadget API)
+ * - BUS:    bus glue code, bus abstraction layer
+ *
+ * Compile Options
+ * - CONFIG_USB_GADGET_DEBUG_FILES: enable debug facilities
+ * - STALL_IN:  non-empty bulk-in pipes cannot be halted
+ *              if defined mass storage compliance succeeds but with warnings
+ *              => case 4: Hi >  Dn
+ *              => case 5: Hi >  Di
+ *              => case 8: Hi <> Do
+ *              if undefined usbtest 13 fails
+ * - TRACE:     enable function tracing (depends on DEBUG)
+ *
+ * Main Features
+ * - Chapter 9 & Mass Storage Compliance with Gadget File Storage
+ * - Chapter 9 Compliance with Gadget Zero (STALL_IN undefined)
+ * - Normal & LPM support
+ *
+ * USBTEST Report
+ * - OK: 0-12, 13 (STALL_IN defined) & 14
+ * - Not Supported: 15 & 16 (ISO)
+ *
+ * TODO List
+ * - OTG
+ * - Isochronous & Interrupt Traffic
+ * - Handle requests which spawns into several TDs
+ * - GET_STATUS(device) - always reports 0
+ * - Gadget API (majority of optional features)
+ */
 #include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/dmapool.h>
 #include <linux/dma-mapping.h>
 #include <linux/init.h>
-#include <linux/ratelimit.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/irq.h>
@@ -29,17 +67,18 @@
 #include <linux/usb/msm_hsusb.h>
 
 #include "ci13xxx_udc.h"
-#include <mach/htc_battery_common.h>
 
 
+/******************************************************************************
+ * DEFINE
+ *****************************************************************************/
 
 #define DMA_ADDR_INVALID	(~(dma_addr_t)0)
-#define USB_MAX_TIMEOUT 	100 
-#define EP_PRIME_CHECK_DELAY   (jiffies + msecs_to_jiffies(1000))
-#define MAX_PRIME_CHECK_RETRY  3 
 
+/* ctrl register bank access */
 static DEFINE_SPINLOCK(udc_lock);
 
+/* control endpoint description */
 static const struct usb_endpoint_descriptor
 ctrl_endpt_out_desc = {
 	.bLength         = USB_DT_ENDPOINT_SIZE,
@@ -60,8 +99,10 @@ ctrl_endpt_in_desc = {
 	.wMaxPacketSize  = cpu_to_le16(CTRL_PAYLOAD_MAX),
 };
 
+/* UDC descriptor */
 static struct ci13xxx *_udc;
 
+/* Interrupt statistics */
 #define ISR_MASK   0x1F
 static struct {
 	u32 test;
@@ -78,6 +119,12 @@ static struct {
 	} hndl;
 } isr_statistics;
 
+/**
+ * ffs_nr: find first (least significant) bit set
+ * @x: the word to search
+ *
+ * This function returns bit number (instead of position)
+ */
 static int ffs_nr(u32 x)
 {
 	int n = ffs(x);
@@ -85,20 +132,26 @@ static int ffs_nr(u32 x)
 	return n ? n-1 : 32;
 }
 
+/******************************************************************************
+ * HW block
+ *****************************************************************************/
+/* register bank descriptor */
 static struct {
-	unsigned      lpm;    
-	void __iomem *abs;    
-	void __iomem *cap;    
-	size_t        size;   
+	unsigned      lpm;    /* is LPM? */
+	void __iomem *abs;    /* bus map offset */
+	void __iomem *cap;    /* bus map offset + CAP offset + CAP data */
+	size_t        size;   /* bank size */
 } hw_bank;
 
+/* MSM specific */
 #define ABS_AHBBURST        (0x0090UL)
 #define ABS_AHBMODE         (0x0098UL)
+/* UDC register map */
 #define ABS_CAPLENGTH       (0x100UL)
 #define ABS_HCCPARAMS       (0x108UL)
 #define ABS_DCCPARAMS       (0x124UL)
 #define ABS_TESTMODE        (hw_bank.lpm ? 0x0FCUL : 0x138UL)
-#define CAP_GEN_CONFIG     (0x09CUL)
+/* offset to CAPLENTGH (addr + data) */
 #define CAP_USBCMD          (0x000UL)
 #define CAP_USBSTS          (0x004UL)
 #define CAP_USBINTR         (0x008UL)
@@ -118,9 +171,16 @@ static struct {
 
 #define REMOTE_WAKEUP_DELAY	msecs_to_jiffies(200)
 
+/* maximum number of enpoints: valid only after hw_device_reset() */
 static unsigned hw_ep_max;
-static void dbg_usb_op_fail(u8 addr, const char *name,
-				const struct ci13xxx_ep *mep);
+
+/**
+ * hw_ep_bit: calculates the bit number
+ * @num: endpoint number
+ * @dir: endpoint direction
+ *
+ * This function returns bit number
+ */
 static inline int hw_ep_bit(int num, int dir)
 {
 	return num + (dir ? 16 : 0);
@@ -136,33 +196,61 @@ static int ep_to_bit(int n)
 	return n;
 }
 
+/**
+ * hw_aread: reads from register bitfield
+ * @addr: address relative to bus map
+ * @mask: bitfield mask
+ *
+ * This function returns register bitfield data
+ */
 static u32 hw_aread(u32 addr, u32 mask)
 {
 	return ioread32(addr + hw_bank.abs) & mask;
 }
 
+/**
+ * hw_awrite: writes to register bitfield
+ * @addr: address relative to bus map
+ * @mask: bitfield mask
+ * @data: new data
+ */
 static void hw_awrite(u32 addr, u32 mask, u32 data)
 {
 	iowrite32(hw_aread(addr, ~mask) | (data & mask),
 		  addr + hw_bank.abs);
 }
 
+/**
+ * hw_cread: reads from register bitfield
+ * @addr: address relative to CAP offset plus content
+ * @mask: bitfield mask
+ *
+ * This function returns register bitfield data
+ */
 static u32 hw_cread(u32 addr, u32 mask)
 {
 	return ioread32(addr + hw_bank.cap) & mask;
 }
 
+/**
+ * hw_cwrite: writes to register bitfield
+ * @addr: address relative to CAP offset plus content
+ * @mask: bitfield mask
+ * @data: new data
+ */
 static void hw_cwrite(u32 addr, u32 mask, u32 data)
 {
 	iowrite32(hw_cread(addr, ~mask) | (data & mask),
 		  addr + hw_bank.cap);
 }
 
-static void hw_cwrite_no_mask(u32 addr, u32 data)
-{
-	iowrite32(data, addr + hw_bank.cap);
-}
-
+/**
+ * hw_ctest_and_clear: tests & clears register bitfield
+ * @addr: address relative to CAP offset plus content
+ * @mask: bitfield mask
+ *
+ * This function returns register bitfield data
+ */
 static u32 hw_ctest_and_clear(u32 addr, u32 mask)
 {
 	u32 reg = hw_cread(addr, mask);
@@ -171,6 +259,14 @@ static u32 hw_ctest_and_clear(u32 addr, u32 mask)
 	return reg;
 }
 
+/**
+ * hw_ctest_and_write: tests & writes register bitfield
+ * @addr: address relative to CAP offset plus content
+ * @mask: bitfield mask
+ * @data: new data
+ *
+ * This function returns register bitfield data
+ */
 static u32 hw_ctest_and_write(u32 addr, u32 mask, u32 data)
 {
 	u32 reg = hw_cread(addr, ~0);
@@ -183,7 +279,7 @@ static int hw_device_init(void __iomem *base)
 {
 	u32 reg;
 
-	
+	/* bank is a module variable */
 	hw_bank.abs = base;
 
 	hw_bank.cap = hw_bank.abs;
@@ -197,45 +293,56 @@ static int hw_device_init(void __iomem *base)
 	hw_bank.size /= sizeof(u32);
 
 	reg = hw_aread(ABS_DCCPARAMS, DCCPARAMS_DEN) >> ffs_nr(DCCPARAMS_DEN);
-	hw_ep_max = reg * 2;   
+	hw_ep_max = reg * 2;   /* cache hw ENDPT_MAX */
 
 	if (hw_ep_max == 0 || hw_ep_max > ENDPT_MAX)
 		return -ENODEV;
 
-	
+	/* setup lock mode ? */
 
-	
+	/* ENDPTSETUPSTAT is '0' by default */
 
-	
+	/* HCSPARAMS.bf.ppc SHOULD BE zero for device */
 
 	return 0;
 }
+/**
+ * hw_device_reset: resets chip (execute without interruption)
+ * @base: register base address
+ *
+ * This function returns an error code
+ */
 static int hw_device_reset(struct ci13xxx *udc)
 {
-	
+	/* should flush & stop before reset */
 	hw_cwrite(CAP_ENDPTFLUSH, ~0, ~0);
 	hw_cwrite(CAP_USBCMD, USBCMD_RS, 0);
 
 	hw_cwrite(CAP_USBCMD, USBCMD_RST, USBCMD_RST);
 	while (hw_cread(CAP_USBCMD, USBCMD_RST))
-		udelay(10);             
+		udelay(10);             /* not RTOS friendly */
 
 
 	if (udc->udc_driver->notify_event)
 		udc->udc_driver->notify_event(udc,
 			CI13XXX_CONTROLLER_RESET_EVENT);
 
-
 	if (udc->udc_driver->flags & CI13XXX_DISABLE_STREAMING)
 		hw_cwrite(CAP_USBMODE, USBMODE_SDIS, USBMODE_SDIS);
 
-	
+	/* USBMODE should be configured step by step */
 	hw_cwrite(CAP_USBMODE, USBMODE_CM, USBMODE_CM_IDLE);
 	hw_cwrite(CAP_USBMODE, USBMODE_CM, USBMODE_CM_DEVICE);
-	hw_cwrite(CAP_USBMODE, USBMODE_SLOM, USBMODE_SLOM);  
+	hw_cwrite(CAP_USBMODE, USBMODE_SLOM, USBMODE_SLOM);  /* HW >= 2.3 */
 
-	hw_awrite(CAP_GEN_CONFIG, (1<<6), (1<<6));
-
+	/*
+	 * ITC (Interrupt Threshold Control) field is to set the maximum
+	 * rate at which the device controller will issue interrupts.
+	 * The maximum interrupt interval measured in micro frames.
+	 * Valid values are 0, 1, 2, 4, 8, 16, 32, 64. The default value is
+	 * 8 micro frames. If CPU can handle interrupts at faster rate, ITC
+	 * can be set to lesser value to gain performance.
+	 */
 	if (udc->udc_driver->flags & CI13XXX_ZERO_ITC)
 		hw_cwrite(CAP_USBCMD, USBCMD_ITC_MASK, USBCMD_ITC(0));
 
@@ -248,11 +355,18 @@ static int hw_device_reset(struct ci13xxx *udc)
 	return 0;
 }
 
+/**
+ * hw_device_state: enables/disables interrupts & starts/stops device (execute
+ *                  without interruption)
+ * @dma: 0 => disable, !0 => enable and set dma engine
+ *
+ * This function returns an error code
+ */
 static int hw_device_state(u32 dma)
 {
 	if (dma) {
 		hw_cwrite(CAP_ENDPTLISTADDR, ~0, dma);
-		
+		/* interrupt, error, port change, reset, sleep/suspend */
 		hw_cwrite(CAP_USBINTR, ~0,
 			     USBi_UI|USBi_UEI|USBi_PCI|USBi_URI|USBi_SLI);
 		hw_cwrite(CAP_USBCMD, USBCMD_RS, USBCMD_RS);
@@ -263,53 +377,34 @@ static int hw_device_state(u32 dma)
 	return 0;
 }
 
-static void debug_ept_flush_info(int ep_num, int dir)
-{
-	struct ci13xxx *udc = _udc;
-	struct ci13xxx_ep *mep;
-
-	if (dir)
-		mep = &udc->ci13xxx_ep[ep_num + hw_ep_max/2];
-	else
-		mep = &udc->ci13xxx_ep[ep_num];
-
-	pr_err_ratelimited("USB Registers\n");
-	pr_err_ratelimited("USBCMD:%x\n", hw_cread(CAP_USBCMD, ~0));
-	pr_err_ratelimited("USBSTS:%x\n", hw_cread(CAP_USBSTS, ~0));
-	pr_err_ratelimited("ENDPTLISTADDR:%x\n",
-			hw_cread(CAP_ENDPTLISTADDR, ~0));
-	pr_err_ratelimited("PORTSC:%x\n", hw_cread(CAP_PORTSC, ~0));
-	pr_err_ratelimited("USBMODE:%x\n", hw_cread(CAP_USBMODE, ~0));
-	pr_err_ratelimited("ENDPTSTAT:%x\n", hw_cread(CAP_ENDPTSTAT, ~0));
-
-	dbg_usb_op_fail(0xFF, "FLUSHF", mep);
-}
+/**
+ * hw_ep_flush: flush endpoint fifo (execute without interruption)
+ * @num: endpoint number
+ * @dir: endpoint direction
+ *
+ * This function returns an error code
+ */
 static int hw_ep_flush(int num, int dir)
 {
-	ktime_t start, diff;
 	int n = hw_ep_bit(num, dir);
 
-	start = ktime_get();
 	do {
-		
+		/* flush any pending transfer */
 		hw_cwrite(CAP_ENDPTFLUSH, BIT(n), BIT(n));
-		while (hw_cread(CAP_ENDPTFLUSH, BIT(n))) {
+		while (hw_cread(CAP_ENDPTFLUSH, BIT(n)))
 			cpu_relax();
-			diff = ktime_sub(ktime_get(), start);
-			if (ktime_to_ms(diff) > USB_MAX_TIMEOUT) {
-				printk_ratelimited(KERN_ERR
-					"%s: Failed to flush ep#%d %s\n",
-					__func__, num,
-					dir ? "IN" : "OUT");
-				debug_ept_flush_info(num, dir);
-				return 0;
-		}
-	}
 	} while (hw_cread(CAP_ENDPTSTAT, BIT(n)));
 
 	return 0;
 }
 
+/**
+ * hw_ep_disable: disables endpoint (execute without interruption)
+ * @num: endpoint number
+ * @dir: endpoint direction
+ *
+ * This function returns an error code
+ */
 static int hw_ep_disable(int num, int dir)
 {
 	hw_ep_flush(num, dir);
@@ -318,37 +413,52 @@ static int hw_ep_disable(int num, int dir)
 	return 0;
 }
 
+/**
+ * hw_ep_enable: enables endpoint (execute without interruption)
+ * @num:  endpoint number
+ * @dir:  endpoint direction
+ * @type: endpoint type
+ *
+ * This function returns an error code
+ */
 static int hw_ep_enable(int num, int dir, int type)
 {
 	u32 mask, data;
 
 	if (dir) {
-		mask  = ENDPTCTRL_TXT;  
+		mask  = ENDPTCTRL_TXT;  /* type    */
 		data  = type << ffs_nr(mask);
 
-		mask |= ENDPTCTRL_TXS;  
-		mask |= ENDPTCTRL_TXR;  
+		mask |= ENDPTCTRL_TXS;  /* unstall */
+		mask |= ENDPTCTRL_TXR;  /* reset data toggle */
 		data |= ENDPTCTRL_TXR;
-		mask |= ENDPTCTRL_TXE;  
+		mask |= ENDPTCTRL_TXE;  /* enable  */
 		data |= ENDPTCTRL_TXE;
 	} else {
-		mask  = ENDPTCTRL_RXT;  
+		mask  = ENDPTCTRL_RXT;  /* type    */
 		data  = type << ffs_nr(mask);
 
-		mask |= ENDPTCTRL_RXS;  
-		mask |= ENDPTCTRL_RXR;  
+		mask |= ENDPTCTRL_RXS;  /* unstall */
+		mask |= ENDPTCTRL_RXR;  /* reset data toggle */
 		data |= ENDPTCTRL_RXR;
-		mask |= ENDPTCTRL_RXE;  
+		mask |= ENDPTCTRL_RXE;  /* enable  */
 		data |= ENDPTCTRL_RXE;
 	}
 	hw_cwrite(CAP_ENDPTCTRL + num * sizeof(u32), mask, data);
 
-	
+	/* make sure endpoint is enabled before returning */
 	mb();
 
 	return 0;
 }
 
+/**
+ * hw_ep_get_halt: return endpoint halt status
+ * @num: endpoint number
+ * @dir: endpoint direction
+ *
+ * This function returns 1 if endpoint halted
+ */
 static int hw_ep_get_halt(int num, int dir)
 {
 	u32 mask = dir ? ENDPTCTRL_TXS : ENDPTCTRL_RXS;
@@ -356,12 +466,27 @@ static int hw_ep_get_halt(int num, int dir)
 	return hw_cread(CAP_ENDPTCTRL + num * sizeof(u32), mask) ? 1 : 0;
 }
 
+/**
+ * hw_test_and_clear_setup_status: test & clear setup status (execute without
+ *                                 interruption)
+ * @n: endpoint number
+ *
+ * This function returns setup status
+ */
 static int hw_test_and_clear_setup_status(int n)
 {
 	n = ep_to_bit(n);
 	return hw_ctest_and_clear(CAP_ENDPTSETUPSTAT, BIT(n));
 }
 
+/**
+ * hw_ep_prime: primes endpoint (execute without interruption)
+ * @num:     endpoint number
+ * @dir:     endpoint direction
+ * @is_ctrl: true if control endpoint
+ *
+ * This function returns an error code
+ */
 static int hw_ep_prime(int num, int dir, int is_ctrl)
 {
 	int n = hw_ep_bit(num, dir);
@@ -371,13 +496,24 @@ static int hw_ep_prime(int num, int dir, int is_ctrl)
 
 	hw_cwrite(CAP_ENDPTPRIME, BIT(n), BIT(n));
 
+	while (hw_cread(CAP_ENDPTPRIME, BIT(n)))
+		cpu_relax();
 	if (is_ctrl && dir == RX  && hw_cread(CAP_ENDPTSETUPSTAT, BIT(num)))
 		return -EAGAIN;
 
-	
+	/* status shoult be tested according with manual but it doesn't work */
 	return 0;
 }
 
+/**
+ * hw_ep_set_halt: configures ep halt & resets data toggle after clear (execute
+ *                 without interruption)
+ * @num:   endpoint number
+ * @dir:   endpoint direction
+ * @value: true => stall, false => unstall
+ *
+ * This function returns an error code
+ */
 static int hw_ep_set_halt(int num, int dir, int value)
 {
 	u32 addr, mask_xs, mask_xr;
@@ -393,7 +529,7 @@ static int hw_ep_set_halt(int num, int dir, int value)
 		mask_xs = dir ? ENDPTCTRL_TXS : ENDPTCTRL_RXS;
 		mask_xr = dir ? ENDPTCTRL_TXR : ENDPTCTRL_RXR;
 
-		
+		/* data toggle - reserved for EP0 but it's in ESS */
 		hw_cwrite(addr, mask_xs|mask_xr, value ? mask_xs : mask_xr);
 
 	} while (value != hw_ep_get_halt(num, dir));
@@ -401,6 +537,13 @@ static int hw_ep_set_halt(int num, int dir, int value)
 	return 0;
 }
 
+/**
+ * hw_intr_clear: disables interrupt & clears interrupt status (execute without
+ *                interruption)
+ * @n: interrupt bit
+ *
+ * This function returns an error code
+ */
 static int hw_intr_clear(int n)
 {
 	if (n >= REG_BITS)
@@ -411,6 +554,13 @@ static int hw_intr_clear(int n)
 	return 0;
 }
 
+/**
+ * hw_intr_force: enables interrupt & forces interrupt status (execute without
+ *                interruption)
+ * @n: interrupt bit
+ *
+ * This function returns an error code
+ */
 static int hw_intr_force(int n)
 {
 	if (n >= REG_BITS)
@@ -423,17 +573,33 @@ static int hw_intr_force(int n)
 	return 0;
 }
 
+/**
+ * hw_is_port_high_speed: test if port is high speed
+ *
+ * This function returns true if high speed port
+ */
 static int hw_port_is_high_speed(void)
 {
 	return hw_bank.lpm ? hw_cread(CAP_DEVLC, DEVLC_PSPD) :
 		hw_cread(CAP_PORTSC, PORTSC_HSP);
 }
 
+/**
+ * hw_port_test_get: reads port test mode value
+ *
+ * This function returns port test mode value
+ */
 static u8 hw_port_test_get(void)
 {
 	return hw_cread(CAP_PORTSC, PORTSC_PTC) >> ffs_nr(PORTSC_PTC);
 }
 
+/**
+ * hw_port_test_set: writes port test mode (execute without interruption)
+ * @mode: new value
+ *
+ * This function returns an error code
+ */
 static int hw_port_test_set(u8 mode)
 {
 	const u8 TEST_MODE_MAX = 7;
@@ -445,16 +611,33 @@ static int hw_port_test_set(u8 mode)
 	return 0;
 }
 
+/**
+ * hw_read_intr_enable: returns interrupt enable register
+ *
+ * This function returns register data
+ */
 static u32 hw_read_intr_enable(void)
 {
 	return hw_cread(CAP_USBINTR, ~0);
 }
 
+/**
+ * hw_read_intr_status: returns interrupt status register
+ *
+ * This function returns register data
+ */
 static u32 hw_read_intr_status(void)
 {
 	return hw_cread(CAP_USBSTS, ~0);
 }
 
+/**
+ * hw_register_read: reads all device registers (execute without interruption)
+ * @buf:  destination buffer
+ * @size: buffer size
+ *
+ * This function returns number of registers read
+ */
 static size_t hw_register_read(u32 *buf, size_t size)
 {
 	unsigned i;
@@ -468,27 +651,47 @@ static size_t hw_register_read(u32 *buf, size_t size)
 	return size;
 }
 
+/**
+ * hw_register_write: writes to register
+ * @addr: register address
+ * @data: register value
+ *
+ * This function returns an error code
+ */
 static int hw_register_write(u16 addr, u32 data)
 {
-	
+	/* align */
 	addr /= sizeof(u32);
 
 	if (addr >= hw_bank.size)
 		return -EINVAL;
 
-	
+	/* align */
 	addr *= sizeof(u32);
 
 	hw_awrite(addr, ~0, data);
 	return 0;
 }
 
+/**
+ * hw_test_and_clear_complete: test & clear complete status (execute without
+ *                             interruption)
+ * @n: endpoint number
+ *
+ * This function returns complete status
+ */
 static int hw_test_and_clear_complete(int n)
 {
 	n = ep_to_bit(n);
 	return hw_ctest_and_clear(CAP_ENDPTCOMPLETE, BIT(n));
 }
 
+/**
+ * hw_test_and_clear_intr_active: test & clear active interrupts (execute
+ *                                without interruption)
+ *
+ * This function returns active interrutps
+ */
 static u32 hw_test_and_clear_intr_active(void)
 {
 	u32 reg = hw_read_intr_status() & hw_read_intr_enable();
@@ -497,47 +700,81 @@ static u32 hw_test_and_clear_intr_active(void)
 	return reg;
 }
 
+/**
+ * hw_test_and_clear_setup_guard: test & clear setup guard (execute without
+ *                                interruption)
+ *
+ * This function returns guard value
+ */
 static int hw_test_and_clear_setup_guard(void)
 {
 	return hw_ctest_and_write(CAP_USBCMD, USBCMD_SUTW, 0);
 }
 
+/**
+ * hw_test_and_set_setup_guard: test & set setup guard (execute without
+ *                              interruption)
+ *
+ * This function returns guard value
+ */
 static int hw_test_and_set_setup_guard(void)
 {
 	return hw_ctest_and_write(CAP_USBCMD, USBCMD_SUTW, USBCMD_SUTW);
 }
 
+/**
+ * hw_usb_set_address: configures USB address (execute without interruption)
+ * @value: new USB address
+ *
+ * This function returns an error code
+ */
 static int hw_usb_set_address(u8 value)
 {
-	
+	/* advance */
 	hw_cwrite(CAP_DEVICEADDR, DEVICEADDR_USBADR | DEVICEADDR_USBADRA,
 		  value << ffs_nr(DEVICEADDR_USBADR) | DEVICEADDR_USBADRA);
 	return 0;
 }
 
+/**
+ * hw_usb_reset: restart device after a bus reset (execute without
+ *               interruption)
+ *
+ * This function returns an error code
+ */
 static int hw_usb_reset(void)
 {
 	hw_usb_set_address(0);
 
-	
-	hw_cwrite(CAP_ENDPTFLUSH,    ~0, ~0);   
+	/* ESS flushes only at end?!? */
+	hw_cwrite(CAP_ENDPTFLUSH,    ~0, ~0);   /* flush all EPs */
 
-	
-	hw_cwrite(CAP_ENDPTSETUPSTAT, 0,  0);   
+	/* clear setup token semaphores */
+	hw_cwrite(CAP_ENDPTSETUPSTAT, 0,  0);   /* writes its content */
 
-	
-	hw_cwrite(CAP_ENDPTCOMPLETE,  0,  0);   
+	/* clear complete status */
+	hw_cwrite(CAP_ENDPTCOMPLETE,  0,  0);   /* writes its content */
 
-	
+	/* wait until all bits cleared */
 	while (hw_cread(CAP_ENDPTPRIME, ~0))
-		udelay(10);             
+		udelay(10);             /* not RTOS friendly */
 
-	
+	/* reset all endpoints ? */
 
+	/* reset internal status and wait for further instructions
+	   no need to verify the port reset status (ESS does it) */
 
 	return 0;
 }
 
+/******************************************************************************
+ * DBG block
+ *****************************************************************************/
+/**
+ * show_device: prints information about device capabilities and status
+ *
+ * Check "device.h" for details
+ */
 static ssize_t show_device(struct device *dev, struct device_attribute *attr,
 			   char *buf)
 {
@@ -555,7 +792,7 @@ static ssize_t show_device(struct device *dev, struct device_attribute *attr,
 		       gadget->speed);
 	n += scnprintf(buf + n, PAGE_SIZE - n, "max_speed         = %d\n",
 		       gadget->max_speed);
-	
+	/* TODO: Scheduled for removal in 3.8. */
 	n += scnprintf(buf + n, PAGE_SIZE - n, "is_dualspeed      = %d\n",
 		       gadget_is_dualspeed(gadget));
 	n += scnprintf(buf + n, PAGE_SIZE - n, "is_otg            = %d\n",
@@ -575,6 +812,11 @@ static ssize_t show_device(struct device *dev, struct device_attribute *attr,
 }
 static DEVICE_ATTR(device, S_IRUSR, show_device, NULL);
 
+/**
+ * show_driver: prints information about attached gadget (if any)
+ *
+ * Check "device.h" for details
+ */
 static ssize_t show_driver(struct device *dev, struct device_attribute *attr,
 			   char *buf)
 {
@@ -601,26 +843,37 @@ static ssize_t show_driver(struct device *dev, struct device_attribute *attr,
 }
 static DEVICE_ATTR(driver, S_IRUSR, show_driver, NULL);
 
+/* Maximum event message length */
 #define DBG_DATA_MSG   64UL
 
+/* Maximum event messages */
 #define DBG_DATA_MAX   128UL
 
+/* Event buffer descriptor */
 static struct {
-	char     (buf[DBG_DATA_MAX])[DBG_DATA_MSG];   
-	unsigned idx;   
-	unsigned tty;   
-	rwlock_t lck;   
+	char     (buf[DBG_DATA_MAX])[DBG_DATA_MSG];   /* buffer */
+	unsigned idx;   /* index */
+	unsigned tty;   /* print to console? */
+	rwlock_t lck;   /* lock */
 } dbg_data = {
 	.idx = 0,
 	.tty = 0,
 	.lck = __RW_LOCK_UNLOCKED(lck)
 };
 
+/**
+ * dbg_dec: decrements debug event index
+ * @idx: buffer index
+ */
 static void dbg_dec(unsigned *idx)
 {
 	*idx = (*idx - 1) & (DBG_DATA_MAX-1);
 }
 
+/**
+ * dbg_inc: increments debug event index
+ * @idx: buffer index
+ */
 static void dbg_inc(unsigned *idx)
 {
 	*idx = (*idx + 1) & (DBG_DATA_MAX-1);
@@ -636,7 +889,7 @@ static int allow_dbg_print(u8 addr)
 {
 	int dir, num;
 
-	
+	/* allow bus wide events */
 	if (addr == 0xff)
 		return 1;
 
@@ -652,6 +905,13 @@ static int allow_dbg_print(u8 addr)
 	return 0;
 }
 
+/**
+ * dbg_print:  prints the common part of the event
+ * @addr:   endpoint address
+ * @name:   event name
+ * @status: status
+ * @extra:  extra information
+ */
 static void dbg_print(u8 addr, const char *name, int status, const char *extra)
 {
 	struct timeval tval;
@@ -664,7 +924,7 @@ static void dbg_print(u8 addr, const char *name, int status, const char *extra)
 	write_lock_irqsave(&dbg_data.lck, flags);
 
 	do_gettimeofday(&tval);
-	stamp = tval.tv_sec & 0xFFFF;	
+	stamp = tval.tv_sec & 0xFFFF;	/* 2^32 = 4294967296. Limit to 4096s */
 	stamp = stamp * 1000000 + tval.tv_usec;
 
 	scnprintf(dbg_data.buf[dbg_data.idx], DBG_DATA_MSG,
@@ -680,6 +940,12 @@ static void dbg_print(u8 addr, const char *name, int status, const char *extra)
 			  stamp, addr, name, status, extra);
 }
 
+/**
+ * dbg_done: prints a DONE event
+ * @addr:   endpoint address
+ * @td:     transfer descriptor
+ * @status: status
+ */
 static void dbg_done(u8 addr, const u32 token, int status)
 {
 	char msg[DBG_DATA_MSG];
@@ -690,12 +956,24 @@ static void dbg_done(u8 addr, const u32 token, int status)
 	dbg_print(addr, "DONE", status, msg);
 }
 
+/**
+ * dbg_event: prints a generic event
+ * @addr:   endpoint address
+ * @name:   event name
+ * @status: status
+ */
 static void dbg_event(u8 addr, const char *name, int status)
 {
 	if (name != NULL)
 		dbg_print(addr, name, status, "");
 }
 
+/*
+ * dbg_queue: prints a QUEUE event
+ * @addr:   endpoint address
+ * @req:    USB request
+ * @status: status
+ */
 static void dbg_queue(u8 addr, const struct usb_request *req, int status)
 {
 	char msg[DBG_DATA_MSG];
@@ -707,6 +985,11 @@ static void dbg_queue(u8 addr, const struct usb_request *req, int status)
 	}
 }
 
+/**
+ * dbg_setup: prints a SETUP event
+ * @addr: endpoint address
+ * @req:  setup request
+ */
 static void dbg_setup(u8 addr, const struct usb_ctrlrequest *req)
 {
 	char msg[DBG_DATA_MSG];
@@ -720,40 +1003,11 @@ static void dbg_setup(u8 addr, const struct usb_ctrlrequest *req)
 	}
 }
 
-static void dbg_usb_op_fail(u8 addr, const char *name,
-				const struct ci13xxx_ep *mep)
-{
-	char msg[DBG_DATA_MSG];
-	struct ci13xxx_req *req;
-	struct list_head *ptr = NULL;
-
-	if (mep != NULL) {
-		scnprintf(msg, sizeof(msg),
-			"%s Fail EP%d%s QH:%08X",
-			name, mep->num,
-			mep->dir ? "IN" : "OUT", mep->qh.ptr->cap);
-		dbg_print(addr, name, 0, msg);
-		scnprintf(msg, sizeof(msg),
-				"cap:%08X %08X %08X\n",
-				mep->qh.ptr->curr, mep->qh.ptr->td.next,
-				mep->qh.ptr->td.token);
-		dbg_print(addr, "QHEAD", 0, msg);
-
-		list_for_each(ptr, &mep->qh.queue) {
-			req = list_entry(ptr, struct ci13xxx_req, queue);
-			scnprintf(msg, sizeof(msg),
-					"%08X:%08X:%08X\n",
-					req->dma, req->ptr->next,
-					req->ptr->token);
-			dbg_print(addr, "REQ", 0, msg);
-			scnprintf(msg, sizeof(msg), "%08X:%d\n",
-					req->ptr->page[0],
-					req->req.status);
-			dbg_print(addr, "REQPAGE", 0, msg);
-		}
-	}
-}
-
+/**
+ * show_events: displays the event buffer
+ *
+ * Check "device.h" for details
+ */
 static ssize_t show_events(struct device *dev, struct device_attribute *attr,
 			   char *buf)
 {
@@ -785,6 +1039,11 @@ static ssize_t show_events(struct device *dev, struct device_attribute *attr,
 	return n;
 }
 
+/**
+ * store_events: configure if events are going to be also printed to console
+ *
+ * Check "device.h" for details
+ */
 static ssize_t store_events(struct device *dev, struct device_attribute *attr,
 			    const char *buf, size_t count)
 {
@@ -809,6 +1068,11 @@ static ssize_t store_events(struct device *dev, struct device_attribute *attr,
 }
 static DEVICE_ATTR(events, S_IRUSR | S_IWUSR, show_events, store_events);
 
+/**
+ * show_inters: interrupt status, enable status and historic
+ *
+ * Check "device.h" for details
+ */
 static ssize_t show_inters(struct device *dev, struct device_attribute *attr,
 			   char *buf)
 {
@@ -877,6 +1141,12 @@ static ssize_t show_inters(struct device *dev, struct device_attribute *attr,
 	return n;
 }
 
+/**
+ * store_inters: enable & force or disable an individual interrutps
+ *                   (to be used for test purposes only)
+ *
+ * Check "device.h" for details
+ */
 static ssize_t store_inters(struct device *dev, struct device_attribute *attr,
 			    const char *buf, size_t count)
 {
@@ -912,6 +1182,11 @@ static ssize_t store_inters(struct device *dev, struct device_attribute *attr,
 }
 static DEVICE_ATTR(inters, S_IRUSR | S_IWUSR, show_inters, store_inters);
 
+/**
+ * show_port_test: reads port test mode
+ *
+ * Check "device.h" for details
+ */
 static ssize_t show_port_test(struct device *dev,
 			      struct device_attribute *attr, char *buf)
 {
@@ -932,6 +1207,11 @@ static ssize_t show_port_test(struct device *dev,
 	return scnprintf(buf, PAGE_SIZE, "mode = %u\n", mode);
 }
 
+/**
+ * store_port_test: writes port test mode
+ *
+ * Check "device.h" for details
+ */
 static ssize_t store_port_test(struct device *dev,
 			       struct device_attribute *attr,
 			       const char *buf, size_t count)
@@ -962,6 +1242,11 @@ static ssize_t store_port_test(struct device *dev,
 static DEVICE_ATTR(port_test, S_IRUSR | S_IWUSR,
 		   show_port_test, store_port_test);
 
+/**
+ * show_qheads: DMA contents of all queue heads
+ *
+ * Check "device.h" for details
+ */
 static ssize_t show_qheads(struct device *dev, struct device_attribute *attr,
 			   char *buf)
 {
@@ -995,6 +1280,11 @@ static ssize_t show_qheads(struct device *dev, struct device_attribute *attr,
 }
 static DEVICE_ATTR(qheads, S_IRUSR, show_qheads, NULL);
 
+/**
+ * show_registers: dumps all registers
+ *
+ * Check "device.h" for details
+ */
 #define DUMP_ENTRIES	512
 static ssize_t show_registers(struct device *dev,
 			      struct device_attribute *attr, char *buf)
@@ -1033,6 +1323,11 @@ static ssize_t show_registers(struct device *dev,
 	return n;
 }
 
+/**
+ * store_registers: writes value to register address
+ *
+ * Check "device.h" for details
+ */
 static ssize_t store_registers(struct device *dev,
 			       struct device_attribute *attr,
 			       const char *buf, size_t count)
@@ -1062,6 +1357,11 @@ static ssize_t store_registers(struct device *dev,
 static DEVICE_ATTR(registers, S_IRUSR | S_IWUSR,
 		   show_registers, store_registers);
 
+/**
+ * show_requests: DMA contents of all requests currently queued (all endpts)
+ *
+ * Check "device.h" for details
+ */
 static ssize_t show_requests(struct device *dev, struct device_attribute *attr,
 			     char *buf)
 {
@@ -1099,6 +1399,7 @@ static ssize_t show_requests(struct device *dev, struct device_attribute *attr,
 }
 static DEVICE_ATTR(requests, S_IRUSR, show_requests, NULL);
 
+/* EP# and Direction */
 static ssize_t prime_ept(struct device *dev,
 			       struct device_attribute *attr,
 			       const char *buf, size_t count)
@@ -1126,7 +1427,7 @@ static ssize_t prime_ept(struct device *dev,
 
 	wmb();
 
-	hw_cwrite_no_mask(CAP_ENDPTPRIME, BIT(n));
+	hw_cwrite(CAP_ENDPTPRIME, BIT(n), BIT(n));
 	while (hw_cread(CAP_ENDPTPRIME, BIT(n)))
 		cpu_relax();
 
@@ -1140,6 +1441,7 @@ done:
 }
 static DEVICE_ATTR(prime, S_IWUSR, NULL, prime_ept);
 
+/* EP# and Direction */
 static ssize_t print_dtds(struct device *dev,
 			       struct device_attribute *attr,
 			       const char *buf, size_t count)
@@ -1164,14 +1466,12 @@ static ssize_t print_dtds(struct device *dev,
 	n = hw_ep_bit(mEp->num, mEp->dir);
 	pr_info("%s: prime:%08x stat:%08x ep#%d dir:%s"
 			"dTD_update_fail_count: %lu "
-			"mEp->dTD_update_fail_count: %lu"
-			"mEp->prime_fail_count: %lu\n", __func__,
+			"mEp->dTD_update_fail_count: %lu\n", __func__,
 			hw_cread(CAP_ENDPTPRIME, ~0),
 			hw_cread(CAP_ENDPTSTAT, ~0),
 			mEp->num, mEp->dir ? "IN" : "OUT",
 			udc->dTD_update_fail_count,
-			mEp->dTD_update_fail_count,
-			mEp->prime_fail_count);
+			mEp->dTD_update_fail_count);
 
 	pr_info("QH: cap:%08x cur:%08x next:%08x token:%08x\n",
 			mEp->qh.ptr->cap, mEp->qh.ptr->curr,
@@ -1230,6 +1530,10 @@ static void usb_do_remote_wakeup(struct work_struct *w)
 	unsigned long flags;
 	bool do_wake;
 
+	/*
+	 * This work can not be canceled from interrupt handler. Check
+	 * if wakeup conditions are still met.
+	 */
 	spin_lock_irqsave(udc->lock, flags);
 	do_wake = udc->suspended && udc->remote_wakeup;
 	spin_unlock_irqrestore(udc->lock, flags);
@@ -1249,6 +1553,12 @@ static ssize_t usb_remote_wakeup(struct device *dev,
 }
 static DEVICE_ATTR(wakeup, S_IWUSR, 0, usb_remote_wakeup);
 
+/**
+ * dbg_create_files: initializes the attribute interface
+ * @dev: device
+ *
+ * This function returns an error code
+ */
 __maybe_unused static int dbg_create_files(struct device *dev)
 {
 	int retval = 0;
@@ -1315,6 +1625,12 @@ rm_remote_wakeup:
 	return retval;
 }
 
+/**
+ * dbg_remove_files: destroys the attribute interface
+ * @dev: device
+ *
+ * This function returns an error code
+ */
 __maybe_unused static int dbg_remove_files(struct device *dev)
 {
 	if (dev == NULL)
@@ -1331,68 +1647,25 @@ __maybe_unused static int dbg_remove_files(struct device *dev)
 	return 0;
 }
 
+/******************************************************************************
+ * UTIL block
+ *****************************************************************************/
+/**
+ * _usb_addr: calculates endpoint address from direction & number
+ * @ep:  endpoint
+ */
 static inline u8 _usb_addr(struct ci13xxx_ep *ep)
 {
 	return ((ep->dir == TX) ? USB_ENDPOINT_DIR_MASK : 0) | ep->num;
 }
 
-static void usb_chg_stop(struct work_struct *w)
-{
-	USB_INFO("disable charger\n");
-	htc_battery_charger_disable();
-}
-
-static void ep_prime_timer_func(unsigned long data)
-{
-	struct ci13xxx_ep *mep = (struct ci13xxx_ep *)data;
-	struct ci13xxx_req *req;
-	struct list_head *ptr = NULL;
-	int n = hw_ep_bit(mep->num, mep->dir);
-	unsigned long flags;
-
-
-	spin_lock_irqsave(mep->lock, flags);
-	if (!hw_cread(CAP_ENDPTPRIME, BIT(n)))
-		goto out;
-
-	if (list_empty(&mep->qh.queue))
-		goto out;
-
-	req = list_entry(mep->qh.queue.next, struct ci13xxx_req, queue);
-
-	mb();
-	if (!(TD_STATUS_ACTIVE & req->ptr->token))
-		goto out;
-
-	mep->prime_timer_count++;
-	if (mep->prime_timer_count == MAX_PRIME_CHECK_RETRY) {
-		mep->prime_timer_count = 0;
-		pr_info("ep%d dir:%s QH:cap:%08x cur:%08x next:%08x tkn:%08x\n",
-				mep->num, mep->dir ? "IN" : "OUT",
-				mep->qh.ptr->cap, mep->qh.ptr->curr,
-				mep->qh.ptr->td.next, mep->qh.ptr->td.token);
-		list_for_each(ptr, &mep->qh.queue) {
-			req = list_entry(ptr, struct ci13xxx_req, queue);
-			pr_info("\treq:%08xnext:%08xtkn:%08xpage0:%08xsts:%d\n",
-					req->dma, req->ptr->next,
-					req->ptr->token, req->ptr->page[0],
-					req->req.status);
-		}
-		dbg_usb_op_fail(0xFF, "PRIMEF", mep);
-		mep->prime_fail_count++;
-	} else {
-		mod_timer(&mep->prime_timer, EP_PRIME_CHECK_DELAY);
-	}
-
-	spin_unlock_irqrestore(mep->lock, flags);
-	return;
-
-out:
-	mep->prime_timer_count = 0;
-	spin_unlock_irqrestore(mep->lock, flags);
-
-}
-
+/**
+ * _hardware_queue: configures a request at hardware level
+ * @gadget: gadget
+ * @mEp:    endpoint
+ *
+ * This function returns an error code
+ */
 static int _hardware_enqueue(struct ci13xxx_ep *mEp, struct ci13xxx_req *mReq)
 {
 	unsigned i;
@@ -1402,7 +1675,7 @@ static int _hardware_enqueue(struct ci13xxx_ep *mEp, struct ci13xxx_req *mReq)
 
 	trace("%p, %p", mEp, mReq);
 
-	
+	/* don't queue twice */
 	if (mReq->req.status == -EALREADY)
 		return -EALREADY;
 
@@ -1437,6 +1710,10 @@ static int _hardware_enqueue(struct ci13xxx_ep *mEp, struct ci13xxx_req *mReq)
 		if (!mReq->req.no_interrupt)
 			mReq->zptr->token   |= TD_IOC;
 	}
+	/*
+	 * TD configuration
+	 * TODO - handle requests which spawns into several TDs
+	 */
 	memset(mReq->ptr, 0, sizeof(*mReq->ptr));
 	mReq->ptr->token    = length << ffs_nr(TD_TOTAL_BYTES);
 	mReq->ptr->token   &= TD_TOTAL_BYTES;
@@ -1449,6 +1726,10 @@ static int _hardware_enqueue(struct ci13xxx_ep *mEp, struct ci13xxx_req *mReq)
 			mReq->ptr->token  |= TD_IOC;
 	}
 
+	/* MSM Specific: updating the request as required for
+	 * SPS mode. Enable MSM proprietary DMA engine acording
+	 * to the UDC private data in the request.
+	 */
 	if (CI13XX_REQ_VENDOR_ID(mReq->req.udc_priv) == MSM_VENDOR_ID) {
 		if (mReq->req.udc_priv & MSM_SPS_MODE) {
 			mReq->ptr->token = TD_STATUS_ACTIVE;
@@ -1463,11 +1744,11 @@ static int _hardware_enqueue(struct ci13xxx_ep *mEp, struct ci13xxx_req *mReq)
 	}
 
 	mReq->ptr->page[0]  = mReq->req.dma;
-	for (i = 1; i < 4; i++)
+	for (i = 1; i < 5; i++)
 		mReq->ptr->page[i] =
 			(mReq->req.dma + i * CI13XXX_PAGE_SIZE) & ~TD_RESERVED_MASK;
 
-	
+	/* Remote Wakeup */
 	if (udc->suspended) {
 		if (!udc->remote_wakeup) {
 			mReq->req.status = -EAGAIN;
@@ -1483,7 +1764,6 @@ static int _hardware_enqueue(struct ci13xxx_ep *mEp, struct ci13xxx_req *mReq)
 		struct ci13xxx_req *mReqPrev;
 		int n = hw_ep_bit(mEp->num, mEp->dir);
 		int tmp_stat;
-		ktime_t start, diff;
 
 		mReqPrev = list_entry(mEp->qh.queue.prev,
 				struct ci13xxx_req, queue);
@@ -1494,27 +1774,16 @@ static int _hardware_enqueue(struct ci13xxx_ep *mEp, struct ci13xxx_req *mReq)
 		wmb();
 		if (hw_cread(CAP_ENDPTPRIME, BIT(n)))
 			goto done;
-		start = ktime_get();
 		do {
 			hw_cwrite(CAP_USBCMD, USBCMD_ATDTW, USBCMD_ATDTW);
 			tmp_stat = hw_cread(CAP_ENDPTSTAT, BIT(n));
-			diff = ktime_sub(ktime_get(), start);
-			
-			if (ktime_to_ms(diff) > USB_MAX_TIMEOUT) {
-				if (hw_cread(CAP_USBCMD, USBCMD_ATDTW))
-					break;
-				printk_ratelimited(KERN_ERR
-				"%s:queue failed ep#%d %s\n",
-				 __func__, mEp->num, mEp->dir ? "IN" : "OUT");
-				return -EAGAIN;
-			}
 		} while (!hw_cread(CAP_USBCMD, USBCMD_ATDTW));
 		hw_cwrite(CAP_USBCMD, USBCMD_ATDTW, 0);
 		if (tmp_stat)
 			goto done;
 	}
 
-	
+	/*  QH configuration */
 	if (!list_empty(&mEp->qh.queue)) {
 		struct ci13xxx_req *mReq = \
 			list_entry(mEp->qh.queue.next,
@@ -1527,17 +1796,19 @@ static int _hardware_enqueue(struct ci13xxx_ep *mEp, struct ci13xxx_req *mReq)
 		}
 	}
 
-	mEp->qh.ptr->td.next   = mReq->dma;    
+	mEp->qh.ptr->td.next   = mReq->dma;    /* TERMINATE = 0 */
 
 	if (CI13XX_REQ_VENDOR_ID(mReq->req.udc_priv) == MSM_VENDOR_ID) {
 		if (mReq->req.udc_priv & MSM_SPS_MODE) {
 			mEp->qh.ptr->td.next   |= MSM_ETD_TYPE;
 			i = hw_cread(CAP_ENDPTPIPEID +
 						 mEp->num * sizeof(u32), ~0);
-			
+			/* Read current value of this EPs pipe id */
 			i = (mEp->dir == TX) ?
 				((i >> MSM_TX_PIPE_ID_OFS) & MSM_PIPE_ID_MASK) :
 					(i & MSM_PIPE_ID_MASK);
+			/* If requested pipe id is different from current,
+			   then write it */
 			if (i != (mReq->req.udc_priv & MSM_PIPE_ID_MASK)) {
 				if (mEp->dir == TX)
 					hw_cwrite(
@@ -1559,20 +1830,25 @@ static int _hardware_enqueue(struct ci13xxx_ep *mEp, struct ci13xxx_req *mReq)
 		}
 	}
 
-	mEp->qh.ptr->td.token &= ~TD_STATUS;   
+	mEp->qh.ptr->td.token &= ~TD_STATUS;   /* clear status */
 	mEp->qh.ptr->cap |=  QH_ZLT;
 
 prime:
-	wmb();   
+	wmb();   /* synchronize before ep prime */
 
 	ret = hw_ep_prime(mEp->num, mEp->dir,
 			   mEp->type == USB_ENDPOINT_XFER_CONTROL);
-	if (!ret)
-		mod_timer(&mEp->prime_timer, EP_PRIME_CHECK_DELAY);
 done:
 	return ret;
 }
 
+/**
+ * _hardware_dequeue: handles a request at hardware level
+ * @gadget: gadget
+ * @mEp:    endpoint
+ *
+ * This function returns an error code
+ */
 static int _hardware_dequeue(struct ci13xxx_ep *mEp, struct ci13xxx_req *mReq)
 {
 	trace("%p, %p", mEp, mReq);
@@ -1580,7 +1856,7 @@ static int _hardware_dequeue(struct ci13xxx_ep *mEp, struct ci13xxx_req *mReq)
 	if (mReq->req.status != -EALREADY)
 		return -EINVAL;
 
-	
+	/* clean speculative fetches on req->ptr->token */
 	mb();
 
 	if ((TD_STATUS_ACTIVE & mReq->ptr->token) != 0)
@@ -1607,19 +1883,12 @@ static int _hardware_dequeue(struct ci13xxx_ep *mEp, struct ci13xxx_req *mReq)
 	}
 
 	mReq->req.status = mReq->ptr->token & TD_STATUS;
-	if ((TD_STATUS_HALTED & mReq->req.status) != 0) {
-		USB_WARNING("%s: HALTED EP%d %s %6d\n", __func__, mEp->num,
-			((mEp->dir == TX)? "I":"O"), mReq->req.length);
+	if ((TD_STATUS_HALTED & mReq->req.status) != 0)
 		mReq->req.status = -1;
-	} else if ((TD_STATUS_DT_ERR & mReq->req.status) != 0) {
-		USB_WARNING("%s: DT_ERR EP%d %s %6d\n", __func__, mEp->num,
-			((mEp->dir == TX)? "I":"O"), mReq->req.length);
+	else if ((TD_STATUS_DT_ERR & mReq->req.status) != 0)
 		mReq->req.status = -1;
-	} else if ((TD_STATUS_TR_ERR & mReq->req.status) != 0) {
-		USB_WARNING("%s: TR_ERR EP%d %s %6d\n", __func__, mEp->num,
-			((mEp->dir == TX)? "I":"O"), mReq->req.length);
+	else if ((TD_STATUS_TR_ERR & mReq->req.status) != 0)
 		mReq->req.status = -1;
-	}
 
 	mReq->req.actual   = mReq->ptr->token & TD_TOTAL_BYTES;
 	mReq->req.actual >>= ffs_nr(TD_TOTAL_BYTES);
@@ -1629,6 +1898,13 @@ static int _hardware_dequeue(struct ci13xxx_ep *mEp, struct ci13xxx_req *mReq)
 	return mReq->req.actual;
 }
 
+/**
+ * _ep_nuke: dequeues all endpoint requests
+ * @mEp: endpoint
+ *
+ * This function returns an error code
+ * Caller must hold lock
+ */
 static int _ep_nuke(struct ci13xxx_ep *mEp)
 __releases(mEp->lock)
 __acquires(mEp->lock)
@@ -1645,13 +1921,13 @@ __acquires(mEp->lock)
 
 	while (!list_empty(&mEp->qh.queue)) {
 
-		
+		/* pop oldest request */
 		struct ci13xxx_req *mReq = \
 			list_entry(mEp->qh.queue.next,
 				   struct ci13xxx_req, queue);
 		list_del_init(&mReq->queue);
 
-		
+		/* MSM Specific: Clear end point proprietary register */
 		if (CI13XX_REQ_VENDOR_ID(mReq->req.udc_priv) == MSM_VENDOR_ID) {
 			if (mReq->req.udc_priv & MSM_SPS_MODE) {
 				val = hw_cread(CAP_ENDPTPIPEID +
@@ -1689,7 +1965,13 @@ __acquires(mEp->lock)
 	return 0;
 }
 
-static int _gadget_stop_activity(struct usb_gadget *gadget, int mute)
+/**
+ * _gadget_stop_activity: stops all USB activity, flushes & disables all endpts
+ * @gadget: gadget
+ *
+ * This function returns an error code
+ */
+static int _gadget_stop_activity(struct usb_gadget *gadget)
 {
 	struct usb_ep *ep;
 	struct ci13xxx    *udc = container_of(gadget, struct ci13xxx, gadget);
@@ -1712,22 +1994,16 @@ static int _gadget_stop_activity(struct usb_gadget *gadget, int mute)
 	gadget->host_request = 0;
 	gadget->otg_srp_reqd = 0;
 
-	
+	/* flush all endpoints */
 	gadget_for_each_ep(ep, gadget) {
 		usb_ep_fifo_flush(ep);
 	}
-	
-	spin_lock_irqsave(udc->lock, flags);
-	_ep_nuke(&udc->ep0out);
-	_ep_nuke(&udc->ep0in);
-	spin_unlock_irqrestore(udc->lock, flags);
+	usb_ep_fifo_flush(&udc->ep0out.ep);
+	usb_ep_fifo_flush(&udc->ep0in.ep);
 
-	if (mute)
-		udc->driver->mute_disconnect(gadget);
-	else
-		udc->driver->disconnect(gadget);
+	udc->driver->disconnect(gadget);
 
-	
+	/* make sure to disable all endpoints */
 	gadget_for_each_ep(ep, gadget) {
 		usb_ep_disable(ep);
 	}
@@ -1740,6 +2016,15 @@ static int _gadget_stop_activity(struct usb_gadget *gadget, int mute)
 	return 0;
 }
 
+/******************************************************************************
+ * ISR block
+ *****************************************************************************/
+/**
+ * isr_reset_handler: USB reset interrupt handler
+ * @udc: UDC device
+ *
+ * This function resets USB engine after a bus reset occurred
+ */
 static void isr_reset_handler(struct ci13xxx *udc)
 __releases(udc->lock)
 __acquires(udc->lock)
@@ -1757,11 +2042,11 @@ __acquires(udc->lock)
 
 	spin_unlock(udc->lock);
 
-	
+	/*stop charging upon reset */
 	if (udc->transceiver)
 		usb_phy_set_power(udc->transceiver, 0);
 
-	retval = _gadget_stop_activity(&udc->gadget, 1);
+	retval = _gadget_stop_activity(&udc->gadget);
 	if (retval)
 		goto done;
 
@@ -1780,16 +2065,15 @@ __acquires(udc->lock)
 		err("error: %i", retval);
 }
 
+/**
+ * isr_resume_handler: USB PCI interrupt handler
+ * @udc: UDC device
+ *
+ */
 static void isr_resume_handler(struct ci13xxx *udc)
 {
 	udc->gadget.speed = hw_port_is_high_speed() ?
 		USB_SPEED_HIGH : USB_SPEED_FULL;
-
-	if (udc->gadget.speed == USB_SPEED_HIGH)
-		USB_INFO("portchange USB_SPEED_HIGH\n");
-	else
-		USB_INFO("portchange USB_SPEED_FULL\n");
-
 	if (udc->suspended) {
 		spin_unlock(udc->lock);
 		if (udc->udc_driver->notify_event)
@@ -1803,6 +2087,11 @@ static void isr_resume_handler(struct ci13xxx *udc)
 	}
 }
 
+/**
+ * isr_resume_handler: USB SLI interrupt handler
+ * @udc: UDC device
+ *
+ */
 static void isr_suspend_handler(struct ci13xxx *udc)
 {
 	if (udc->gadget.speed != USB_SPEED_UNKNOWN &&
@@ -1821,6 +2110,13 @@ static void isr_suspend_handler(struct ci13xxx *udc)
 	}
 }
 
+/**
+ * isr_get_status_complete: get_status request complete function
+ * @ep:  endpoint
+ * @req: request handled
+ *
+ * Caller must release lock
+ */
 static void isr_get_status_complete(struct usb_ep *ep, struct usb_request *req)
 {
 	trace("%p, %p", ep, req);
@@ -1834,6 +2130,13 @@ static void isr_get_status_complete(struct usb_ep *ep, struct usb_request *req)
 	usb_ep_free_request(ep, req);
 }
 
+/**
+ * isr_get_status_response: get_status request response
+ * @udc: udc struct
+ * @setup: setup request packet
+ *
+ * This function returns an error code
+ */
 static int isr_get_status_response(struct ci13xxx *udc,
 				   struct usb_ctrlrequest *setup)
 __releases(mEp->lock)
@@ -1869,10 +2172,10 @@ __acquires(mEp->lock)
 						HOST_REQUEST_FLAG;
 			req->length = 1;
 		} else {
-			
+			/* Assume that device is bus powered for now. */
 			*((u16 *)req->buf) = _udc->remote_wakeup << 1;
 		}
-		
+		/* TODO: D1 - Remote Wakeup; D0 - Self Powered */
 		retval = 0;
 	} else if ((setup->bRequestType & USB_RECIP_MASK) \
 		   == USB_RECIP_ENDPOINT) {
@@ -1881,7 +2184,7 @@ __acquires(mEp->lock)
 		num =  le16_to_cpu(setup->wIndex) & USB_ENDPOINT_NUMBER_MASK;
 		*((u16 *)req->buf) = hw_ep_get_halt(num, dir);
 	}
-	
+	/* else do nothing; reserved for future use */
 
 	spin_unlock(mEp->lock);
 	retval = usb_ep_queue(&mEp->ep, req, gfp_flags);
@@ -1900,6 +2203,14 @@ __acquires(mEp->lock)
 	return retval;
 }
 
+/**
+ * isr_setup_status_complete: setup_status request complete function
+ * @ep:  endpoint
+ * @req: request handled
+ *
+ * Caller must release lock. Put the port in test mode if test mode
+ * feature is selected.
+ */
 static void
 isr_setup_status_complete(struct usb_ep *ep, struct usb_request *req)
 {
@@ -1914,6 +2225,12 @@ isr_setup_status_complete(struct usb_ep *ep, struct usb_request *req)
 	spin_unlock_irqrestore(udc->lock, flags);
 }
 
+/**
+ * isr_setup_status_phase: queues the status phase of a setup transation
+ * @udc: udc struct
+ *
+ * This function returns an error code
+ */
 static int isr_setup_status_phase(struct ci13xxx *udc)
 __releases(mEp->lock)
 __acquires(mEp->lock)
@@ -1937,6 +2254,13 @@ __acquires(mEp->lock)
 	return retval;
 }
 
+/**
+ * isr_tr_complete_low: transaction complete low level handler
+ * @mEp: endpoint
+ *
+ * This function returns an error code
+ * Caller must hold lock
+ */
 static int isr_tr_complete_low(struct ci13xxx_ep *mEp)
 __releases(mEp->lock)
 __acquires(mEp->lock)
@@ -1952,15 +2276,18 @@ __acquires(mEp->lock)
 	if (list_empty(&mEp->qh.queue))
 		return 0;
 
-	del_timer(&mEp->prime_timer);
-	mEp->prime_timer_count = 0;
 	list_for_each_entry_safe(mReq, mReqTemp, &mEp->qh.queue,
 			queue) {
 dequeue:
 		retval = _hardware_dequeue(mEp, mReq);
 		if (retval < 0) {
-			if (retval == -EBUSY && req_dequeue &&
-				(mEp->dir == 0 || mEp->num == 0)) {
+			/*
+			 * FIXME: don't know exact delay
+			 * required for HW to update dTD status
+			 * bits. This is a temporary workaround till
+			 * HW designers come back on this.
+			 */
+			if (retval == -EBUSY && req_dequeue && mEp->dir == 0) {
 				req_dequeue = 0;
 				udc->dTD_update_fail_count++;
 				mEp->dTD_update_fail_count++;
@@ -1990,13 +2317,18 @@ dequeue:
 	return retval;
 }
 
+/**
+ * isr_tr_complete_handler: transaction complete interrupt handler
+ * @udc: UDC descriptor
+ *
+ * This function handles traffic events
+ */
 static void isr_tr_complete_handler(struct ci13xxx *udc)
 __releases(udc->lock)
 __acquires(udc->lock)
 {
 	unsigned i;
 	u8 tmode = 0;
-	struct usb_info *ui = the_usb_info;
 
 	trace("%p", udc);
 
@@ -2011,12 +2343,12 @@ __acquires(udc->lock)
 		struct usb_ctrlrequest req;
 
 		if (mEp->desc == NULL)
-			continue;   
+			continue;   /* not configured */
 
 		if (hw_test_and_clear_complete(i)) {
 			err = isr_tr_complete_low(mEp);
 			if (mEp->type == USB_ENDPOINT_XFER_CONTROL) {
-				if (err > 0)   
+				if (err > 0)   /* needs status phase */
 					err = isr_setup_status_phase(udc);
 				if (err < 0) {
 					dbg_event(_usb_addr(mEp),
@@ -2038,14 +2370,18 @@ __acquires(udc->lock)
 			continue;
 		}
 
+		/*
+		 * Flush data and handshake transactions of previous
+		 * setup packet.
+		 */
 		_ep_nuke(&udc->ep0out);
 		_ep_nuke(&udc->ep0in);
 
-		
+		/* read_setup_packet */
 		do {
 			hw_test_and_set_setup_guard();
 			memcpy(&req, &mEp->qh.ptr->setup, sizeof(req));
-			
+			/* Ensure buffer is read before acknowledging to h/w */
 			mb();
 		} while (!hw_test_and_clear_setup_guard());
 
@@ -2065,7 +2401,7 @@ __acquires(udc->lock)
 				num  = le16_to_cpu(req.wIndex);
 				dir = num & USB_ENDPOINT_DIR_MASK;
 				num &= USB_ENDPOINT_NUMBER_MASK;
-				if (dir) 
+				if (dir) /* TX */
 					num += hw_ep_max/2;
 				if (!udc->ci13xxx_ep[num].wedge) {
 					spin_unlock(udc->lock);
@@ -2120,7 +2456,7 @@ __acquires(udc->lock)
 				num  = le16_to_cpu(req.wIndex);
 				dir = num & USB_ENDPOINT_DIR_MASK;
 				num &= USB_ENDPOINT_NUMBER_MASK;
-				if (dir) 
+				if (dir) /* TX */
 					num += hw_ep_max/2;
 
 				spin_unlock(udc->lock);
@@ -2153,8 +2489,6 @@ __acquires(udc->lock)
 					case TEST_K:
 					case TEST_SE0_NAK:
 					case TEST_PACKET:
-						if (!udc->test_mode)
-							schedule_delayed_work(&ui->chg_stop, 0);
 					case TEST_FORCE_EN:
 						udc->test_mode = tmode;
 						err = isr_setup_status_phase(
@@ -2182,7 +2516,7 @@ __acquires(udc->lock)
 			break;
 		default:
 delegate:
-			if (req.wLength == 0)   
+			if (req.wLength == 0)   /* no data phase */
 				udc->ep0_dir = TX;
 
 			spin_unlock(udc->lock);
@@ -2202,6 +2536,14 @@ delegate:
 	}
 }
 
+/******************************************************************************
+ * ENDPT block
+ *****************************************************************************/
+/**
+ * ep_enable: configure endpoint, making it usable
+ *
+ * Check usb_ep_enable() at "usb_gadget.h" for details
+ */
 static int ep_enable(struct usb_ep *ep,
 		     const struct usb_endpoint_descriptor *desc)
 {
@@ -2216,7 +2558,7 @@ static int ep_enable(struct usb_ep *ep,
 
 	spin_lock_irqsave(mEp->lock, flags);
 
-	
+	/* only internal SW should enable ctrl endpts */
 
 	mEp->desc = desc;
 
@@ -2242,11 +2584,15 @@ static int ep_enable(struct usb_ep *ep,
 
 	mEp->qh.ptr->cap |=
 		(mEp->ep.maxpacket << ffs_nr(QH_MAX_PKT)) & QH_MAX_PKT;
-	mEp->qh.ptr->td.next |= TD_TERMINATE;   
+	mEp->qh.ptr->td.next |= TD_TERMINATE;   /* needed? */
 
-	
+	/* complete all the updates to ept->head before enabling endpoint*/
 	mb();
 
+	/*
+	 * Enable endpoints in the HW other than ep0 as ep0
+	 * is always enabled
+	 */
 	if (mEp->num)
 		retval |= hw_ep_enable(mEp->num, mEp->dir, mEp->type);
 
@@ -2254,6 +2600,11 @@ static int ep_enable(struct usb_ep *ep,
 	return retval;
 }
 
+/**
+ * ep_disable: endpoint is no longer usable
+ *
+ * Check usb_ep_disable() at "usb_gadget.h" for details
+ */
 static int ep_disable(struct usb_ep *ep)
 {
 	struct ci13xxx_ep *mEp = container_of(ep, struct ci13xxx_ep, ep);
@@ -2269,10 +2620,8 @@ static int ep_disable(struct usb_ep *ep)
 
 	spin_lock_irqsave(mEp->lock, flags);
 
-	
+	/* only internal SW should disable ctrl endpts */
 
-	del_timer(&mEp->prime_timer);
-	mEp->prime_timer_count = 0;
 	direction = mEp->dir;
 	do {
 		dbg_event(_usb_addr(mEp), "DISABLE", 0);
@@ -2292,6 +2641,11 @@ static int ep_disable(struct usb_ep *ep)
 	return retval;
 }
 
+/**
+ * ep_alloc_request: allocate a request object to use with this endpoint
+ *
+ * Check usb_ep_alloc_request() at "usb_gadget.h" for details
+ */
 static struct usb_request *ep_alloc_request(struct usb_ep *ep, gfp_t gfp_flags)
 {
 	struct ci13xxx_ep  *mEp  = container_of(ep, struct ci13xxx_ep, ep);
@@ -2322,6 +2676,11 @@ static struct usb_request *ep_alloc_request(struct usb_ep *ep, gfp_t gfp_flags)
 	return (mReq == NULL) ? NULL : &mReq->req;
 }
 
+/**
+ * ep_free_request: frees a request object
+ *
+ * Check usb_ep_free_request() at "usb_gadget.h" for details
+ */
 static void ep_free_request(struct usb_ep *ep, struct usb_request *req)
 {
 	struct ci13xxx_ep  *mEp  = container_of(ep,  struct ci13xxx_ep, ep);
@@ -2349,6 +2708,11 @@ static void ep_free_request(struct usb_ep *ep, struct usb_request *req)
 	spin_unlock_irqrestore(mEp->lock, flags);
 }
 
+/**
+ * ep_queue: queues (submits) an I/O request to an endpoint
+ *
+ * Check usb_ep_queue()* at usb_gadget.h" for details
+ */
 static int ep_queue(struct usb_ep *ep, struct usb_request *req,
 		    gfp_t __maybe_unused gfp_flags)
 {
@@ -2385,7 +2749,7 @@ static int ep_queue(struct usb_ep *ep, struct usb_request *req,
 		}
 	}
 
-	
+	/* first nuke then test link, e.g. previous status has not sent */
 	if (!list_empty(&mReq->queue)) {
 		retval = -EBUSY;
 		err("request already in queue");
@@ -2400,7 +2764,7 @@ static int ep_queue(struct usb_ep *ep, struct usb_request *req,
 
 	dbg_queue(_usb_addr(mEp), req, retval);
 
-	
+	/* push request */
 	mReq->req.status = -EINPROGRESS;
 	mReq->req.actual = 0;
 
@@ -2418,6 +2782,11 @@ static int ep_queue(struct usb_ep *ep, struct usb_request *req,
 	return retval;
 }
 
+/**
+ * ep_dequeue: dequeues (cancels, unlinks) an I/O request from an endpoint
+ *
+ * Check usb_ep_dequeue() at "usb_gadget.h" for details
+ */
 static int ep_dequeue(struct usb_ep *ep, struct usb_request *req)
 {
 	struct ci13xxx_ep  *mEp  = container_of(ep,  struct ci13xxx_ep, ep);
@@ -2443,7 +2812,7 @@ static int ep_dequeue(struct usb_ep *ep, struct usb_request *req)
 		hw_ep_flush(mEp->num, mEp->dir);
 	}
 
-	
+	/* pop request */
 	list_del_init(&mReq->queue);
 	if (mReq->map) {
 		dma_unmap_single(mEp->device, mReq->req.dma, mReq->req.length,
@@ -2474,6 +2843,11 @@ static int is_sps_req(struct ci13xxx_req *mReq)
 			mReq->req.udc_priv & MSM_SPS_MODE);
 }
 
+/**
+ * ep_set_halt: sets the endpoint halt feature
+ *
+ * Check usb_ep_set_halt() at "usb_gadget.h" for details
+ */
 static int ep_set_halt(struct usb_ep *ep, int value)
 {
 	struct ci13xxx_ep *mEp = container_of(ep, struct ci13xxx_ep, ep);
@@ -2488,7 +2862,7 @@ static int ep_set_halt(struct usb_ep *ep, int value)
 	spin_lock_irqsave(mEp->lock, flags);
 
 #ifndef STALL_IN
-	
+	/* g_file_storage MS compliant but g_zero fails chapter 9 compliance */
 	if (value && mEp->type == USB_ENDPOINT_XFER_BULK && mEp->dir == TX &&
 		!list_empty(&mEp->qh.queue) &&
 		!is_sps_req(list_entry(mEp->qh.queue.next, struct ci13xxx_req,
@@ -2515,6 +2889,11 @@ static int ep_set_halt(struct usb_ep *ep, int value)
 	return retval;
 }
 
+/**
+ * ep_set_wedge: sets the halt feature and ignores clear requests
+ *
+ * Check usb_ep_set_wedge() at "usb_gadget.h" for details
+ */
 static int ep_set_wedge(struct usb_ep *ep)
 {
 	struct ci13xxx_ep *mEp = container_of(ep, struct ci13xxx_ep, ep);
@@ -2535,6 +2914,11 @@ static int ep_set_wedge(struct usb_ep *ep)
 	return usb_ep_set_halt(ep);
 }
 
+/**
+ * ep_fifo_flush: flushes contents of a fifo
+ *
+ * Check usb_ep_fifo_flush() at "usb_gadget.h" for details
+ */
 static void ep_fifo_flush(struct usb_ep *ep)
 {
 	struct ci13xxx_ep *mEp = container_of(ep, struct ci13xxx_ep, ep);
@@ -2549,14 +2933,16 @@ static void ep_fifo_flush(struct usb_ep *ep)
 
 	spin_lock_irqsave(mEp->lock, flags);
 
-	del_timer(&mEp->prime_timer);
-	mEp->prime_timer_count = 0;
 	dbg_event(_usb_addr(mEp), "FFLUSH", 0);
 	hw_ep_flush(mEp->num, mEp->dir);
 
 	spin_unlock_irqrestore(mEp->lock, flags);
 }
 
+/**
+ * Endpoint-specific part of the API to the USB controller hardware
+ * Check "usb_gadget.h" for details
+ */
 static const struct usb_ep_ops usb_ep_ops = {
 	.enable	       = ep_enable,
 	.disable       = ep_disable,
@@ -2569,6 +2955,9 @@ static const struct usb_ep_ops usb_ep_ops = {
 	.fifo_flush    = ep_fifo_flush,
 };
 
+/******************************************************************************
+ * GADGET block
+ *****************************************************************************/
 static int ci13xxx_vbus_session(struct usb_gadget *_gadget, int is_active)
 {
 	struct ci13xxx *udc = container_of(_gadget, struct ci13xxx, gadget);
@@ -2592,7 +2981,7 @@ static int ci13xxx_vbus_session(struct usb_gadget *_gadget, int is_active)
 				hw_device_state(udc->ep0out.qh.dma);
 		} else {
 			hw_device_state(0);
-			_gadget_stop_activity(&udc->gadget, 0);
+			_gadget_stop_activity(&udc->gadget);
 			if (udc->udc_driver->notify_event)
 				udc->udc_driver->notify_event(udc,
 					CI13XXX_CONTROLLER_DISCONNECT_EVENT);
@@ -2626,17 +3015,14 @@ static int ci13xxx_pullup(struct usb_gadget *_gadget, int is_active)
 	}
 	spin_unlock_irqrestore(udc->lock, flags);
 
-	USB_INFO("%s: %d\n", __func__, is_active);
 	if (is_active) {
 		hw_device_state(udc->ep0out.qh.dma);
 		if (udc->udc_driver->notify_event)
 			udc->udc_driver->notify_event(udc,
 				CI13XXX_CONTROLLER_CONNECT_EVENT);
 	}
-	else {
+	else
 		hw_device_state(0);
-		_gadget_stop_activity(&udc->gadget, 1);
-	}
 
 	return 0;
 }
@@ -2644,22 +3030,11 @@ static int ci13xxx_pullup(struct usb_gadget *_gadget, int is_active)
 static int ci13xxx_start(struct usb_gadget_driver *driver,
 		int (*bind)(struct usb_gadget *));
 static int ci13xxx_stop(struct usb_gadget_driver *driver);
-static int ci13xxx_request_reset(struct usb_gadget *_gadget)
-{
-	struct ci13xxx *udc = container_of(_gadget, struct ci13xxx, gadget);
-
-	if (((udc->udc_driver->flags & CI13XXX_PULLUP_ON_VBUS) &&
-			!udc->vbus_active) || !udc->driver || !udc->transceiver) {
-		return 0;
-	}
-
-	USBH_DEBUG("ci13xxx_request_reset\n");
-
-	usb_phy_init(udc->transceiver);
-	hw_device_reset(udc);
-
-	return 0;
-}
+/**
+ * Device operations part of the API to the USB controller hardware,
+ * which don't involve endpoints (or i/o)
+ * Check  "usb_gadget.h" for details
+ */
 static const struct usb_gadget_ops usb_gadget_ops = {
 	.vbus_session	= ci13xxx_vbus_session,
 	.wakeup		= ci13xxx_wakeup,
@@ -2667,9 +3042,16 @@ static const struct usb_gadget_ops usb_gadget_ops = {
 	.pullup		= ci13xxx_pullup,
 	.start		= ci13xxx_start,
 	.stop		= ci13xxx_stop,
-	.req_reset	= ci13xxx_request_reset,
 };
 
+/**
+ * ci13xxx_start: register a gadget driver
+ * @driver: the driver being registered
+ * @bind: the driver's bind callback
+ *
+ * Check ci13xxx_start() at <linux/usb/gadget.h> for details.
+ * Interrupts are enabled here.
+ */
 static int ci13xxx_start(struct usb_gadget_driver *driver,
 		int (*bind)(struct usb_gadget *))
 {
@@ -2691,7 +3073,7 @@ static int ci13xxx_start(struct usb_gadget_driver *driver,
 	else if (udc->driver != NULL)
 		return -EBUSY;
 
-	
+	/* alloc resources */
 	udc->qh_pool = dma_pool_create("ci13xxx_qh", &udc->gadget.dev,
 				       sizeof(struct ci13xxx_qh),
 				       64, CI13XXX_PAGE_SIZE);
@@ -2740,7 +3122,7 @@ static int ci13xxx_start(struct usb_gadget_driver *driver,
 			else
 				memset(mEp->qh.ptr, 0, sizeof(*mEp->qh.ptr));
 
-			
+			/* skip ep0 out and in endpoints */
 			if (i == 0)
 				continue;
 
@@ -2762,14 +3144,14 @@ static int ci13xxx_start(struct usb_gadget_driver *driver,
 	spin_lock_irqsave(udc->lock, flags);
 
 	udc->gadget.ep0 = &udc->ep0in.ep;
-	
+	/* bind gadget */
 	driver->driver.bus     = NULL;
 	udc->gadget.dev.driver = &driver->driver;
 	udc->softconnect = 1;
 
 	spin_unlock_irqrestore(udc->lock, flags);
 	pm_runtime_get_sync(&udc->gadget.dev);
-	retval = bind(&udc->gadget);                
+	retval = bind(&udc->gadget);                /* MAY SLEEP */
 	spin_lock_irqsave(udc->lock, flags);
 
 	if (retval) {
@@ -2802,6 +3184,11 @@ static int ci13xxx_start(struct usb_gadget_driver *driver,
 	return retval;
 }
 
+/**
+ * ci13xxx_stop: unregister a gadget driver
+ *
+ * Check usb_gadget_unregister_driver() at "usb_gadget.h" for details
+ */
 static int ci13xxx_stop(struct usb_gadget_driver *driver)
 {
 	struct ci13xxx *udc = _udc;
@@ -2822,19 +3209,19 @@ static int ci13xxx_stop(struct usb_gadget_driver *driver)
 			udc->vbus_active) {
 		hw_device_state(0);
 		spin_unlock_irqrestore(udc->lock, flags);
-		_gadget_stop_activity(&udc->gadget, 0);
+		_gadget_stop_activity(&udc->gadget);
 		spin_lock_irqsave(udc->lock, flags);
 		pm_runtime_put(&udc->gadget.dev);
 	}
 
-	
+	/* unbind gadget */
 	spin_unlock_irqrestore(udc->lock, flags);
-	driver->unbind(&udc->gadget);               
+	driver->unbind(&udc->gadget);               /* MAY SLEEP */
 	spin_lock_irqsave(udc->lock, flags);
 
 	udc->gadget.dev.driver = NULL;
 
-	
+	/* free resources */
 	for (i = 0; i < hw_ep_max; i++) {
 		struct ci13xxx_ep *mEp = &udc->ci13xxx_ep[i];
 
@@ -2862,6 +3249,15 @@ static int ci13xxx_stop(struct usb_gadget_driver *driver)
 	return 0;
 }
 
+/******************************************************************************
+ * BUS block
+ *****************************************************************************/
+/**
+ * udc_irq: global interrupt handler
+ *
+ * This function returns IRQ_HANDLED if the IRQ has been handled
+ * It locks access to registers
+ */
 static irqreturn_t udc_irq(void)
 {
 	struct ci13xxx *udc = _udc;
@@ -2890,14 +3286,10 @@ static irqreturn_t udc_irq(void)
 		isr_statistics.hndl.idx &= ISR_MASK;
 		isr_statistics.hndl.cnt++;
 
-		
+		/* order defines priority - do NOT change it */
 		if (USBi_URI & intr) {
-			USB_INFO("reset\n");
 			isr_statistics.uri++;
 			isr_reset_handler(udc);
-
-			if (udc->transceiver)
-				udc->transceiver->notify_usb_attached();
 		}
 		if (USBi_PCI & intr) {
 			isr_statistics.pci++;
@@ -2910,7 +3302,6 @@ static irqreturn_t udc_irq(void)
 			isr_tr_complete_handler(udc);
 		}
 		if (USBi_SLI & intr) {
-			USB_INFO("suspend\n");
 			isr_suspend_handler(udc);
 			isr_statistics.sli++;
 		}
@@ -2924,6 +3315,12 @@ static irqreturn_t udc_irq(void)
 	return retval;
 }
 
+/**
+ * udc_release: driver release function
+ * @dev: device
+ *
+ * Currently does nothing
+ */
 static void udc_release(struct device *dev)
 {
 	trace("%p", dev);
@@ -2932,6 +3329,16 @@ static void udc_release(struct device *dev)
 		err("EINVAL");
 }
 
+/**
+ * udc_probe: parent probe must call this to initialize UDC
+ * @dev:  parent device
+ * @regs: registers base address
+ * @name: driver name
+ *
+ * This function returns an error code
+ * No interrupts active, the IRQ has not been requested yet
+ * Kernel assumes 32-bit DMA operations by default, no need to dma_set_mask
+ */
 static int udc_probe(struct ci13xxx_udc_driver *driver, struct device *dev,
 		void __iomem *regs)
 {
@@ -2992,8 +3399,6 @@ static int udc_probe(struct ci13xxx_udc_driver *driver, struct device *dev,
 	for (i = 0; i < hw_ep_max; i++) {
 		struct ci13xxx_ep *mEp = &udc->ci13xxx_ep[i];
 		INIT_LIST_HEAD(&mEp->ep.ep_list);
-		setup_timer(&mEp->prime_timer, ep_prime_timer_func,
-			(unsigned long) mEp);
 	}
 
 	if (!(udc->udc_driver->flags & CI13XXX_REGS_SHARED)) {
@@ -3053,6 +3458,11 @@ free_udc:
 	return retval;
 }
 
+/**
+ * udc_remove: parent remove must call this to remove UDC
+ *
+ * No interrupts active, the IRQ has been released
+ */
 static void udc_remove(void)
 {
 	struct ci13xxx *udc = _udc;

@@ -554,17 +554,6 @@ static void mdm_disable_irqs(void)
 
 static irqreturn_t mdm_errfatal(int irq, void *dev_id)
 {
-#if defined(CONFIG_MACH_DUMMY) || defined(CONFIG_MACH_M7_UL) || defined(CONFIG_MACH_DUMMY)
-	extern struct device *msm_hsic_host_dev;
-	if ( msm_hsic_host_dev != NULL) {
-		pr_err("%s: p_dbg_msm_hsic_host:(0x%x)fp:[%d][%d][%d]\n", __func__,
-			(uint)msm_hsic_host_dev,
-			msm_hsic_host_dev->power.runtime_rpm_resume_footprint,
-			msm_hsic_host_dev->power.runtime_rpm_resume_footprint2,
-			msm_hsic_host_dev->power.runtime_pm_runtime_work_footprint);
-	}
-#endif
-
 	pr_err("%s: mdm got errfatal interrupt\n", __func__);
 
 	if (mdm_drv->mdm_ready &&
