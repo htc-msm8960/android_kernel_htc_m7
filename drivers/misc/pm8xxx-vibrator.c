@@ -224,7 +224,8 @@ static ssize_t voltage_level_show(struct device *dev, struct device_attribute *a
 	struct pm8xxx_vib *vib ;
 	time_cdev = (struct timed_output_dev *) dev_get_drvdata(dev);
 	vib = container_of(time_cdev, struct pm8xxx_vib, timed_dev);
-	return sprintf(buf, "voltage input:%dmV\n", vib->level*100);
+    VIB_INFO_LOG("%s voltage input: %d\n", __func__, vib->level*100);
+	return sprintf(buf, "%d\n", vib->level*100);
 }
 
 static ssize_t voltage_level_store(
