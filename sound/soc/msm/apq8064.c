@@ -467,7 +467,7 @@ static int msm_rcv_amp_on(int on)
 				gpio_direction_output(PM8921_GPIO_PM_TO_SYS(RCV_SPK_SEL_PMGPIO), 0);
 				usleep_range(20000,20000);
 			}
-			gpio_free(RCV_PAMP_GPIO);
+			//gpio_free(RCV_PAMP_GPIO);
 		}
 	return 1;
 }
