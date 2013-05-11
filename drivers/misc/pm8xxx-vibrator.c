@@ -127,7 +127,7 @@ static int pm8xxx_vib_set_on(struct pm8xxx_vib *vib)
 	val1 = vib->reg_vib_drv;
 	val1 &= ~VIB_DRV_SEL_MASK;
 	val1 |= ((vib->level << VIB_DRV_SEL_SHIFT) & VIB_DRV_SEL_MASK);
-	VIB_INFO_LOG("%s + val: %x \n", __func__, val1);
+	VIB_DBG_LOG("%s + val: %x \n", __func__, val1);
 
 	if (switch_state == 0) {
 		VIB_INFO_LOG("%s vibrator is disable by switch\n",__func__);
@@ -140,7 +140,7 @@ static int pm8xxx_vib_set_on(struct pm8xxx_vib *vib)
 		return rc;
 	}
 	__dump_vib_regs(vib, "vib_set_end");
-	VIB_INFO_LOG("%s - \n", __func__);
+	VIB_DBG_LOG("%s - \n", __func__);
 	return rc;
 }
 
@@ -151,7 +151,7 @@ static int pm8xxx_vib_set_off(struct pm8xxx_vib *vib)
 	u8 val2;
 	val2 = vib->reg_vib_drv;
 	val2 &= ~VIB_DRV_SEL_MASK;
-	VIB_INFO_LOG("%s + val: %x \n", __func__, val2);
+	VIB_DBG_LOG("%s + val: %x \n", __func__, val2);
 	rc = pm8xxx_vib_write_u8(vib, val2, VIB_DRV);
 	if (rc < 0){
 		VIB_ERR_LOG("%s writing pmic fail, ret:%X\n", __func__, rc);
@@ -162,7 +162,7 @@ static int pm8xxx_vib_set_off(struct pm8xxx_vib *vib)
 		vib_notified = 0;
 	}
 	__dump_vib_regs(vib, "vib_set_end");
-	VIB_INFO_LOG("%s - \n", __func__);
+	VIB_DBG_LOG("%s - \n", __func__);
 	return rc;
 }
 
@@ -175,7 +175,7 @@ static void pm8xxx_vib_enable(struct timed_output_dev *dev, int value)
 		vib_notified = 1;
 	}
 
-	VIB_INFO_LOG("%s vibrate period: %d msec: %s(parent:%s), tgid=%d\n",__func__,value, current->comm, current->parent->comm, current->tgid);
+	VIB_DBG_LOG("%s vibrate period: %d msec: %s(parent:%s), tgid=%d\n",__func__,value, current->comm, current->parent->comm, current->tgid);
 retry:
 
 	if (hrtimer_try_to_cancel(&vib->vib_timer) < 0) {
@@ -218,7 +218,7 @@ static enum hrtimer_restart pm8xxx_vib_timer_func(struct hrtimer *timer)
 {
 	struct pm8xxx_vib *vib = container_of(timer, struct pm8xxx_vib,
 							 vib_timer);
-	VIB_INFO_LOG("%s \n",__func__);
+	VIB_DBG_LOG("%s \n",__func__);
 	pm8xxx_vib_set_off(vib);
 
 	return HRTIMER_NORESTART;
