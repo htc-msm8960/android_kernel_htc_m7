@@ -164,6 +164,8 @@ extern uint8_t touchscreen_is_on(void)
 #define HOME_BUTTON		818
 #define MENU_BUTTON		1335
 
+int l2m_2_phase = 1; // 0 -> logo used as power off on long tap, and short tap syncs input on/off at same time,  1 -> logo used as full menu button, sync on/off events separately
+
 int s2w_switch = 0;
 int s2w_temp = 0;
 
@@ -265,16 +267,35 @@ static void sweep2wake_presspwr(struct work_struct * sweep2wake_presspwr_work) {
 }
 static DECLARE_WORK(sweep2wake_presspwr_work, sweep2wake_presspwr);
 
+static int menu_pressed = 0;
+
 static void sweep2wake_pressmenu(struct work_struct * sweep2wake_pressmenu_work) {
 	struct synaptics_ts_data *ts = gl_ts;
-	break_longtap_count = 1;
-        printk("sending event KEY_MENU 1\n");
-        input_event(ts->input_dev, EV_KEY, KEY_MENU, 1);
-        input_sync(ts->input_dev);
-        msleep(100);
-        input_event(ts->input_dev, EV_KEY, KEY_MENU, 0);
-        input_sync(ts->input_dev);
-        msleep(100);
+	int do_0 = 1;
+
+	// break long tap count if 2 phase input sync is not active
+	if (l2m_2_phase == 0) break_longtap_count = 1;
+
+	if (l2m_2_phase == 1 && menu_pressed == 0)
+	{
+		do_0 = 0;
+	}
+	if (l2m_2_phase == 0 || menu_pressed == 0)
+	{
+		printk("sending event KEY_MENU 1\n");
+		input_event(ts->input_dev, EV_KEY, KEY_MENU, 1);
+		input_sync(ts->input_dev);
+		if (l2m_2_phase == 0) msleep(100);
+		menu_pressed = 1;
+        }
+        if (l2m_2_phase == 0 || (do_0 == 1 && menu_pressed == 1))
+        {
+		printk("sending event KEY_MENU 0\n");
+		input_event(ts->input_dev, EV_KEY, KEY_MENU, 0);
+		input_sync(ts->input_dev);
+		if (l2m_2_phase == 0) msleep(100);
+		menu_pressed = 0;
+        }
         return;
 }
 static DECLARE_WORK(sweep2wake_pressmenu_work, sweep2wake_pressmenu);
@@ -294,6 +315,7 @@ void sweep2wake_menutrigger(void) {
 static int allow_longtap_count = 1;
 
 static void sweep2wake_longtap_count(struct work_struct * sweep2wake_longtap_count_work) {
+	struct synaptics_ts_data *ts = gl_ts;
 	int time_count = 0;
 	if (!mutex_trylock(&longtap_count_lock))
 	    return;
@@ -316,17 +338,30 @@ static void sweep2wake_longtap_count(struct work_struct * sweep2wake_longtap_cou
 	}
 	if (!break_longtap_count)
 	{
-		printk("LONGTAP sending event KEY_POWER 1\n");
-		if (sleep_wake_vibration_time)
+		if (scr_suspended == false && l2m_2_phase == 1)
 		{
-			vibrate(sleep_wake_vibration_time * 5);
+			if (menu_pressed == 1)
+			{
+				printk("sending event KEY_MENU 0\n");
+				input_event(ts->input_dev, EV_KEY, KEY_MENU, 0);
+				input_sync(ts->input_dev);
+				menu_pressed = 0;
+			}
 		}
-		input_event(sweep2wake_pwrdev, EV_KEY, KEY_POWER, 1);
-		input_sync(sweep2wake_pwrdev);
-		msleep(100);
-		input_event(sweep2wake_pwrdev, EV_KEY, KEY_POWER, 0);
-		input_sync(sweep2wake_pwrdev);
-		msleep(100);
+		else
+		{
+			if (sleep_wake_vibration_time)
+			{
+				vibrate(sleep_wake_vibration_time * 5);
+			}
+			printk("LONGTAP sending event KEY_POWER 1\n");
+			input_event(sweep2wake_pwrdev, EV_KEY, KEY_POWER, 1);
+			input_sync(sweep2wake_pwrdev);
+			msleep(100);
+			input_event(sweep2wake_pwrdev, EV_KEY, KEY_POWER, 0);
+			input_sync(sweep2wake_pwrdev);
+			msleep(100);
+		}
 	}
 	mutex_unlock(&longtap_count_lock);
 	return;
@@ -1779,6 +1814,36 @@ static ssize_t synaptics_logo_delay_dump(struct device *dev,
 static DEVICE_ATTR(logo_delay, (S_IWUSR|S_IRUGO),
 	synaptics_logo_delay_show, synaptics_logo_delay_dump);
 
+
+static ssize_t synaptics_l2m_2_phase_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	size_t count = 0;
+
+	count += sprintf(buf, "%d\n", l2m_2_phase);
+
+	return count;
+}
+
+static ssize_t synaptics_l2m_2_phase_dump(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	if (buf[0] >= '0' && buf[0] <= '1' && buf[1] == '\n')
+		if (l2m_2_phase != buf[0] - '0') {
+			l2m_2_phase = buf[0] - '0';
+		}
+
+	if (l2m_2_phase == 0) 
+		printk(KERN_INFO "[L2M]: 2 Phase button Disabled.\n");
+	else if (l2m_2_phase == 1)
+		printk(KERN_INFO "[L2M]: 2 Phase button Enabled.\n");
+
+	return count;
+}
+
+static DEVICE_ATTR(l2m_2_phase, (S_IWUSR|S_IRUGO),
+	synaptics_l2m_2_phase_show, synaptics_l2m_2_phase_dump);
+
 static ssize_t synaptics_sleep_wake_vibration_time_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
@@ -1866,6 +1931,11 @@ static int synaptics_touch_sysfs_init(void)
 		printk(KERN_ERR "%s: sysfs_create_file failed\n", __func__);
 		return ret;
 	}
+		ret = sysfs_create_file(android_touch_kobj, &dev_attr_l2m_2_phase.attr);
+	if (ret) {
+		printk(KERN_ERR "%s: sysfs_create_file failed\n", __func__);
+		return ret;
+	}
 		ret = sysfs_create_file(android_touch_kobj, &dev_attr_sleep_wake_vibration_time.attr);
 	if (ret) {
 		printk(KERN_ERR "%s: sysfs_create_file failed\n", __func__);
@@ -1925,6 +1995,7 @@ static void synaptics_touch_sysfs_remove(void)
 	sysfs_remove_file(android_touch_kobj, &dev_attr_home2wake.attr);
 	sysfs_remove_file(android_touch_kobj, &dev_attr_logo2menu.attr);
 	sysfs_remove_file(android_touch_kobj, &dev_attr_logo_delay.attr);
+	sysfs_remove_file(android_touch_kobj, &dev_attr_l2m_2_phase.attr);
 	sysfs_remove_file(android_touch_kobj, &dev_attr_sleep_wake_vibration_time.attr);
 #endif
 #ifdef SYN_WIRELESS_DEBUG
@@ -2322,8 +2393,16 @@ static void synaptics_ts_finger_func(struct synaptics_ts_data *ts)
 									//sweep2wake_pwrtrigger(); // commented - long tap time count worker used instead
 								} else
 								{
-									// MENU
-									sweep2wake_menutrigger();
+									if (l2m_2_phase == 1 && menu_pressed == 1) // two phase menu input sync, and was pressed, trigger menu 0
+									{
+										// MENU
+										sweep2wake_menutrigger();
+									} else
+									if (l2m_2_phase == 0) // no two phase menu input sync, just trigger menu
+									{
+										// MENU
+										sweep2wake_menutrigger();
+									}
 								}
 							} else
 							{
@@ -2483,8 +2562,14 @@ static void synaptics_ts_finger_func(struct synaptics_ts_data *ts)
 											// OFF 
 											//sweep2wake_pwrtrigger(); // - don't sleep here, on short tap, only sleep when user finger left touchscreen
 										} else
-										if (logo_delay_switch == 1)
+										if (l2m_2_phase == 1 || logo_delay_switch == 1)
 										{
+											if (l2m_2_phase == 1)
+											{
+												menu_pressed = 0;
+												// MENU event -> 1
+												sweep2wake_menutrigger();
+											}
 											// long tap needed, start counting
 											sweep2wake_longtap_count_trigger();
 										}
@@ -2492,7 +2577,23 @@ static void synaptics_ts_finger_func(struct synaptics_ts_data *ts)
 									// logo2menu enabled and some wake option too - longtap count for power off can start
 									if (l2m_switch > 0 && (s2w_switch > 0 || h2w_switch > 0) && logo_delay_switch == 1)
 									{
+											if (l2m_2_phase == 1)
+											{
+												menu_pressed = 0;
+												// MENU event -> 1
+												sweep2wake_menutrigger();
+											}
 											sweep2wake_longtap_count_trigger();
+									} else
+									{
+										if (l2m_switch > 0 && l2m_2_phase == 1)
+										{
+											menu_pressed = 0;
+											// MENU event -> 1
+											sweep2wake_menutrigger();
+											// long tap needed, start counting
+											sweep2wake_longtap_count_trigger();
+										}
 									}
 								} else
 								{
@@ -2544,8 +2645,14 @@ static void synaptics_ts_finger_func(struct synaptics_ts_data *ts)
 											// OFF 
 											//sweep2wake_pwrtrigger(); // - don't sleep here, on short tap, only sleep when user finger left touchscreen
 										} else
-										if (logo_delay_switch == 1)
+										if (l2m_2_phase == 1 || logo_delay_switch == 1)
 										{
+											if (l2m_2_phase == 1)
+											{
+												menu_pressed = 0;
+												// MENU event -> 1
+												sweep2wake_menutrigger();
+											}
 											// long tap needed, start counting
 											sweep2wake_longtap_count_trigger();
 										}
@@ -2553,7 +2660,23 @@ static void synaptics_ts_finger_func(struct synaptics_ts_data *ts)
 									// logo2menu enabled and some wake option too - longtap count for power off can start
 									if (l2m_switch > 0 && (s2w_switch > 0 || h2w_switch > 0) && logo_delay_switch == 1)
 									{
+											if (l2m_2_phase == 1)
+											{
+												menu_pressed = 0;
+												// MENU event -> 1
+												sweep2wake_menutrigger();
+											}
 											sweep2wake_longtap_count_trigger();
+									} else
+									{
+										if (l2m_switch > 0 && l2m_2_phase == 1)
+										{
+											menu_pressed = 0;
+											// MENU event -> 1
+											sweep2wake_menutrigger();
+											// long tap needed, start counting
+											sweep2wake_longtap_count_trigger();
+										}
 									}
 								} else
 								{
@@ -2591,8 +2714,14 @@ static void synaptics_ts_finger_func(struct synaptics_ts_data *ts)
 											// OFF 
 											//sweep2wake_pwrtrigger(); // - don't sleep here, on short tap, only sleep when user finger left touchscreen
 										} else
-										if (logo_delay_switch == 1)
+										if (l2m_2_phase == 1 || logo_delay_switch == 1)
 										{
+											if (l2m_2_phase == 1)
+											{
+												menu_pressed = 0;
+												// MENU event -> 1
+												sweep2wake_menutrigger();
+											}
 											// long tap needed, start counting
 											sweep2wake_longtap_count_trigger();
 										}
@@ -2600,7 +2729,23 @@ static void synaptics_ts_finger_func(struct synaptics_ts_data *ts)
 									// logo2menu enabled and some wake option too - longtap count for power off can start
 									if (l2m_switch > 0 && (s2w_switch > 0 || h2w_switch > 0) && logo_delay_switch == 1)
 									{
+											if (l2m_2_phase == 1)
+											{
+												menu_pressed = 0;
+												// MENU event -> 1
+												sweep2wake_menutrigger();
+											}
 											sweep2wake_longtap_count_trigger();
+									} else
+									{
+										if (l2m_switch > 0 && l2m_2_phase == 1)
+										{
+											menu_pressed = 0;
+											// MENU event -> 1
+											sweep2wake_menutrigger();
+											// long tap needed, start counting
+											sweep2wake_longtap_count_trigger();
+										}
 									}
 								} else
 								{
