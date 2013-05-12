@@ -338,7 +338,7 @@ static void sweep2wake_longtap_count(struct work_struct * sweep2wake_longtap_cou
 	}
 	if (!break_longtap_count)
 	{
-		if (scr_suspended == false && l2m_2_phase == 1)
+		if (scr_suspended == false && l2m_switch == 1 && l2m_2_phase == 1)
 		{
 			if (menu_pressed == 1)
 			{
@@ -349,6 +349,7 @@ static void sweep2wake_longtap_count(struct work_struct * sweep2wake_longtap_cou
 			}
 		}
 		else
+		if (scr_suspended == true || l2m_switch == 0 || (l2m_switch == 1 && l2m_2_phase == 0)) // screen is off, or logo2menu is not used, or logo2menu is not 2_phase
 		{
 			if (sleep_wake_vibration_time)
 			{
@@ -2593,6 +2594,10 @@ static void synaptics_ts_finger_func(struct synaptics_ts_data *ts)
 											sweep2wake_menutrigger();
 											// long tap needed, start counting
 											sweep2wake_longtap_count_trigger();
+										} else
+										if (l2m_switch > 0)
+										{
+											sweep2wake_longtap_count_trigger();
 										}
 									}
 								} else
@@ -2676,6 +2681,10 @@ static void synaptics_ts_finger_func(struct synaptics_ts_data *ts)
 											sweep2wake_menutrigger();
 											// long tap needed, start counting
 											sweep2wake_longtap_count_trigger();
+										} else
+										if (l2m_switch > 0)
+										{
+											sweep2wake_longtap_count_trigger();
 										}
 									}
 								} else
@@ -2744,6 +2753,10 @@ static void synaptics_ts_finger_func(struct synaptics_ts_data *ts)
 											// MENU event -> 1
 											sweep2wake_menutrigger();
 											// long tap needed, start counting
+											sweep2wake_longtap_count_trigger();
+										} else
+										if (l2m_switch > 0)
+										{
 											sweep2wake_longtap_count_trigger();
 										}
 									}
