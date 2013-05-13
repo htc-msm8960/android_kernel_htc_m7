@@ -24,12 +24,15 @@ struct msm_serial_hs_platform_data {
 	char rx_to_inject;
 	int (*gpio_config)(int);
 
-	
-	unsigned char bt_wakeup_pin;	
-	unsigned char host_wakeup_pin;	
+#ifdef CONFIG_MSM_SERIAL_HS_BRCM
+	unsigned char bt_wakeup_pin;
+	unsigned char host_wakeup_pin;
+#endif
 };
 
+#ifdef CONFIG_MSM_SERIAL_HS_BRCM
 extern void imc_msm_hs_request_clock_on(struct uart_port *uport);
+#endif
 unsigned int msm_hs_tx_empty(struct uart_port *uport);
 void msm_hs_request_clock_off(struct uart_port *uport);
 void msm_hs_request_clock_on(struct uart_port *uport);
