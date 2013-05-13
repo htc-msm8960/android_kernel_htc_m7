@@ -2042,7 +2042,7 @@ static int nl80211_del_key(struct sk_buff *skb, struct genl_info *info)
 	return err;
 }
 
-#ifdef CONFIG_BCMDHD_FW_PATH
+#ifdef CONFIG_BCMDHD_4335
 static int nl80211_addset_beacon(struct sk_buff *skb, struct genl_info *info)
 {
         int (*call)(struct wiphy *wiphy, struct net_device *dev,
@@ -2192,9 +2192,9 @@ static int nl80211_del_beacon(struct sk_buff *skb, struct genl_info *info)
 		wdev->beacon_interval = 0;
 	return err;
 }
-#endif
+#endif /* #ifdef CONFIG_BCMDHD_4335 */
 
-#ifndef CONFIG_BCMDHD_FW_PATH
+#ifndef CONFIG_BCMDHD_4335
 static int nl80211_parse_beacon(struct genl_info *info,
 				struct cfg80211_beacon_data *bcn)
 {
@@ -2387,7 +2387,7 @@ static int nl80211_stop_ap(struct sk_buff *skb, struct genl_info *info)
 		wdev->beacon_interval = 0;
 	return err;
 }
-#endif 
+#endif /* #ifndef CONFIG_BCMDHD_4335 */
 
 static const struct nla_policy sta_flags_policy[NL80211_STA_FLAG_MAX + 1] = {
 	[NL80211_STA_FLAG_AUTHORIZED] = { .type = NLA_FLAG },
@@ -6490,19 +6490,18 @@ static struct genl_ops nl80211_ops[] = {
 		.cmd = NL80211_CMD_SET_BEACON,
 		.policy = nl80211_policy,
 		.flags = GENL_ADMIN_PERM,
-#ifndef CONFIG_BCMDHD_FW_PATH 
-		.doit = nl80211_set_beacon,
-		.internal_flags = NL80211_FLAG_NEED_NETDEV_UP |
-				  NL80211_FLAG_NEED_RTNL,
-#else
+#ifdef CONFIG_BCMDHD_4335
 		
 		.doit = nl80211_addset_beacon,
 		.internal_flags = NL80211_FLAG_NEED_NETDEV | 
 				  NL80211_FLAG_NEED_RTNL,
-		
+#else	
+		.doit = nl80211_set_beacon,
+		.internal_flags = NL80211_FLAG_NEED_NETDEV_UP |
+				  NL80211_FLAG_NEED_RTNL,
 #endif
 	},
-#ifdef CONFIG_BCMDHD_FW_PATH	
+#ifdef CONFIG_BCMDHD_4335
 	{
 		.cmd = NL80211_CMD_NEW_BEACON,
 		.policy = nl80211_policy,
