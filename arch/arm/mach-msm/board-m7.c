@@ -758,32 +758,12 @@ static struct platform_device mdm_8064_device = {
 };
 
 #ifdef CONFIG_BT
-static int configure_uart_gpios(int on)
-{
-	int ret = 0, i;
-	int uart_gpios[] = {BT_UART_TX, BT_UART_RX, BT_UART_CTSz, BT_UART_RTSz};
-
-	for (i = 0; i < ARRAY_SIZE(uart_gpios); i++) {
-		if (on) {
-			ret = gpio_request(uart_gpios[i], NULL);
-			if (ret) {
-				pr_err("%s: unable to request uart gpio[%d]\n",
-						__func__, uart_gpios[i]);
-				break;
-			}
-		} else {
-			gpio_free(uart_gpios[i]);
-		}
-	}
-
-	if (ret && on && i)
-		for (; i >= 0; i--)
-			gpio_free(uart_gpios[i]);
-	return ret;
-}
-
 static struct msm_serial_hs_platform_data msm_uart_dm6_pdata = {
-	.gpio_config = configure_uart_gpios,
+	.config_gpio		= 4,
+	.uart_tx_gpio		= BT_UART_TX,
+	.uart_rx_gpio		= BT_UART_RX,
+	.uart_cts_gpio		= BT_UART_CTSz,
+	.uart_rfr_gpio		= BT_UART_RTSz,
 
 #ifdef CONFIG_MSM_SERIAL_HS_BRCM
 	.inject_rx_on_wakeup = 0,
