@@ -25,7 +25,6 @@
 #include <linux/slab.h>
 
 #include <mach/htc_headset_mgr.h>
-#include <mach/headset_amp.h>
 
 #define DRIVER_NAME "HS_MGR"
 
@@ -851,7 +850,6 @@ static void remove_detect_work_func(struct work_struct *work)
 #else
 	state &= ~(MASK_35MM_HEADSET | MASK_FM_ATTRIBUTE);
 	switch_set_state(&hi->sdev_h2w, state);
-	headset_amp_event(state);
 #endif
 	if (hi->one_wire_mode == 1) {
 		hi->one_wire_mode = 0;
@@ -1002,7 +1000,6 @@ static void insert_detect_work_func(struct work_struct *work)
 	hi->hs_35mm_type = mic;
 	HS_LOG_TIME("Send uevent for state change, %d => %d", old_state, new_state);
 	switch_set_state(&hi->sdev_h2w, new_state);
-	headset_amp_event(new_state);
 	hpin_report++;
 
 
