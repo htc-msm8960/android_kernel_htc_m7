@@ -317,11 +317,11 @@ static int msm8960_i2s_hw_params(struct snd_pcm_substream *substream,
 static int msm8960_i2s_tx_free_gpios(void)
 {
 
-        static uint32_t audio_i2s_table[] = {
-            GPIO_CFG(GPIO_I2S_TX_PCLK, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA),
-            GPIO_CFG(GPIO_I2S_TX_WS, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA),
-            GPIO_CFG(GPIO_I2S_TX_DIN, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA),
-        };
+	static uint32_t audio_i2s_table[] = {
+		GPIO_CFG(GPIO_I2S_TX_PCLK, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA),
+		GPIO_CFG(GPIO_I2S_TX_WS, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA),
+		GPIO_CFG(GPIO_I2S_TX_DIN, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA),
+	};
 
 	gpio_free(GPIO_I2S_TX_DIN);
 	gpio_free(GPIO_I2S_TX_WS);
@@ -378,9 +378,9 @@ static int configure_i2s_tx_gpio(void)
 		goto err;
 	}
 
-        gpio_tlmm_config(audio_i2s_table[0], GPIO_CFG_ENABLE);
-        gpio_tlmm_config(audio_i2s_table[1], GPIO_CFG_ENABLE);
-        gpio_tlmm_config(audio_i2s_table[2], GPIO_CFG_ENABLE);
+	gpio_tlmm_config(audio_i2s_table[0], GPIO_CFG_ENABLE);
+	gpio_tlmm_config(audio_i2s_table[1], GPIO_CFG_ENABLE);
+	gpio_tlmm_config(audio_i2s_table[2], GPIO_CFG_ENABLE);
 
 err:
 	return rtn;
@@ -448,53 +448,45 @@ static int msm_rcv_amp_on(int on)
 
 	msm_rcv_control = on;
 	pr_info("%s()  %d\n", __func__, msm_rcv_control);
-	// no need to reoccupy it, we can pass on without this, commented @tbalden
-	//ret = gpio_request(RCV_PAMP_GPIO, "AUDIO_RCV_AMP");
+	ret = gpio_request(RCV_PAMP_GPIO, "AUDIO_RCV_AMP");
 	if (ret) {
 		pr_err("%s: Error requesting GPIO %d\n", __func__,
-			RCV_PAMP_GPIO);
-			return ret;
+				RCV_PAMP_GPIO);
+		return ret;
+	} else {
+		if (msm_rcv_control) {
+			pr_info("%s: enable rcv amp gpio %d\n", __func__, RCV_PAMP_GPIO);
+			usleep_range(20000,20000);
+			ret = gpio_direction_output(RCV_PAMP_GPIO, 1);
+			ret = gpio_direction_output(PM8921_GPIO_PM_TO_SYS(RCV_SPK_SEL_PMGPIO), 1);
+		} else {
+			pr_info("%s: disable rcv amp gpio %d\n", __func__, RCV_PAMP_GPIO);
+			gpio_direction_output(RCV_PAMP_GPIO, 0);
+			gpio_direction_output(PM8921_GPIO_PM_TO_SYS(RCV_SPK_SEL_PMGPIO), 0);
+			usleep_range(20000,20000);
 		}
-		else {
-			if (msm_rcv_control) {
-				pr_info("%s: enable rcv amp gpio %d\n", __func__, HAC_PAMP_GPIO);
-				usleep_range(20000,20000);
-				ret =gpio_direction_output(RCV_PAMP_GPIO, 1);
-				ret = gpio_direction_output(PM8921_GPIO_PM_TO_SYS(RCV_SPK_SEL_PMGPIO), 1);
-			} else {
-				pr_info("%s: disable rcv amp gpio %d\n", __func__, HAC_PAMP_GPIO);
-				gpio_direction_output(RCV_PAMP_GPIO, 0);
-				gpio_direction_output(PM8921_GPIO_PM_TO_SYS(RCV_SPK_SEL_PMGPIO), 0);
-				usleep_range(20000,20000);
-			}
-			//gpio_free(RCV_PAMP_GPIO);
-		}
+		gpio_free(RCV_PAMP_GPIO);
+	}
 	return 1;
 }
-
 
 static unsigned int headset_on = 0;
 static unsigned int call_amplification_needed = 0;
 
 void headset_amp_event(unsigned int on)
 {
-    pr_info("headset_amp_event %d", on);
-    if (call_amplification_needed)
-    {
-    if (on)
-    {
-	pr_info("rcv amp off, headset is plugged --");
-	msm_rcv_amp_on(0);
-    } else
-    {
-	pr_info("rcv amp on, headset is plugged off ++");
-	msm_rcv_amp_on(1);
-    }
-    }
-    headset_on = on;
+	pr_info("headset_amp_event %d", on);
+	if (call_amplification_needed) {
+		if (on) {
+			pr_info("rcv amp off, headset is plugged --");
+			msm_rcv_amp_on(0);
+		} else {
+			pr_info("rcv amp on, headset is plugged off ++");
+			msm_rcv_amp_on(1);
+		}
+	}
+	headset_on = on;
 }
-
-
 
 static void msm_ext_spk_power_amp_on(u32 spk)
 {
@@ -515,28 +507,25 @@ static void msm_ext_spk_power_amp_on(u32 spk)
 
 			
 			pr_info("hs amp on++");
-                        if(query_tpa6185()) {
-                            gpio_direction_output(PM8921_GPIO_PM_TO_SYS(10), 1);
-			    set_handset_amp(1);
-                        }
+			if(query_tpa6185()) {
+				gpio_direction_output(PM8921_GPIO_PM_TO_SYS(10), 1);
+				set_handset_amp(1);
+			}
 
-                        if(query_rt5501())
-			{
-                            set_rt5501_amp(1);
-			    // hack to rcv amp, without this, earpiece is not switched on/off @tbalden. We need full htc kernel source!
-			    call_amplification_needed = 1;
-			    if (headset_on)
-			    {
-				msm_rcv_amp_on(0);
-			    } else
-			    {
-				pr_info("rcv amp on, headset is not plugged");
-				msm_rcv_amp_on(1);
-			    }
+			if(query_rt5501()) {
+				set_rt5501_amp(1);
+				// hack to rcv amp, without this, earpiece is not switched on/off @tbalden. We need full htc kernel source!
+				call_amplification_needed = 1;
+				if (headset_on) {
+					msm_rcv_amp_on(0);
+				} else {
+					pr_info("rcv amp on, headset is not plugged");
+					msm_rcv_amp_on(1);
+				}
 			}
 			pr_info("hs amp on--");
 			pr_debug("%s: slepping 4 ms after turning on external "
-				" Bottom Speaker Ampl\n", __func__);
+					" Bottom Speaker Ampl\n", __func__);
 			usleep_range(4000, 4000);
 		}
 
@@ -581,24 +570,21 @@ static void msm_ext_spk_power_amp_off(u32 spk)
 
 		
 		pr_info("hs amp off ++");
-                if(query_tpa6185()) {
-		    set_handset_amp(0);
-                    gpio_direction_output(PM8921_GPIO_PM_TO_SYS(10), 0);
-                }
+		if(query_tpa6185()) {
+			set_handset_amp(0);
+			gpio_direction_output(PM8921_GPIO_PM_TO_SYS(10), 0);
+		}
 
-                if(query_rt5501())
-		{
-                    set_rt5501_amp(0);
-		    // hack to rcv amp, without this, earpiece is not switched on/off
-		    call_amplification_needed = 0;
-		    if (headset_on)
-		    {
-			msm_rcv_amp_on(0);
-		    } else
-		    {
-			pr_info("rcv amp off, headset is not plugged");
-			msm_rcv_amp_on(0);
-		    }
+		if(query_rt5501()) {
+			set_rt5501_amp(0);
+			// hack to rcv amp, without this, earpiece is not switched on/off
+			call_amplification_needed = 0;
+			if (headset_on) {
+				msm_rcv_amp_on(0);
+			} else {
+				pr_info("rcv amp off, headset is not plugged");
+				msm_rcv_amp_on(0);
+			}
 		}
 		pr_info("hs amp off --");
 
@@ -663,17 +649,16 @@ static int msm_set_hac(struct snd_kcontrol *kcontrol,
 		pr_err("%s: Error requesting GPIO %d\n", __func__,
 			HAC_PAMP_GPIO);
 			return ret;
+	} else {
+		if (msm_hac_control) {
+			pr_info("%s: enable hac amp gpio %d\n", __func__, HAC_PAMP_GPIO);
+			gpio_direction_output(HAC_PAMP_GPIO, 1);
+		} else {
+			pr_info("%s: disable hac amp gpio %d\n", __func__, HAC_PAMP_GPIO);
+			gpio_direction_output(HAC_PAMP_GPIO, 0);
 		}
-		else {
-			if (msm_hac_control) {
-				pr_info("%s: enable hac amp gpio %d\n", __func__, HAC_PAMP_GPIO);
-				gpio_direction_output(HAC_PAMP_GPIO, 1);
-			} else {
-				pr_info("%s: disable hac amp gpio %d\n", __func__, HAC_PAMP_GPIO);
-				gpio_direction_output(HAC_PAMP_GPIO, 0);
-			}
-			gpio_free(HAC_PAMP_GPIO);
-		}
+		gpio_free(HAC_PAMP_GPIO);
+	}
 	return 1;
 }
 
@@ -702,21 +687,20 @@ static int msm_set_rcv_amp(struct snd_kcontrol *kcontrol,
 		pr_err("%s: Error requesting GPIO %d\n", __func__,
 			RCV_PAMP_GPIO);
 			return ret;
+	} else {
+		if (msm_rcv_control) {
+			pr_info("%s: enable rcv amp gpio %d\n", __func__, HAC_PAMP_GPIO);
+			usleep_range(20000,20000);
+			ret = gpio_direction_output(RCV_PAMP_GPIO, 1);
+			ret = gpio_direction_output(PM8921_GPIO_PM_TO_SYS(RCV_SPK_SEL_PMGPIO), 1);
+		} else {
+			pr_info("%s: disable rcv amp gpio %d\n", __func__, HAC_PAMP_GPIO);
+			gpio_direction_output(RCV_PAMP_GPIO, 0);
+			gpio_direction_output(PM8921_GPIO_PM_TO_SYS(RCV_SPK_SEL_PMGPIO), 0);
+			usleep_range(20000,20000);
 		}
-		else {
-			if (msm_rcv_control) {
-				pr_info("%s: enable rcv amp gpio %d\n", __func__, HAC_PAMP_GPIO);
-				usleep_range(20000,20000);
-				ret =gpio_direction_output(RCV_PAMP_GPIO, 1);
-				ret = gpio_direction_output(PM8921_GPIO_PM_TO_SYS(RCV_SPK_SEL_PMGPIO), 1);
-			} else {
-				pr_info("%s: disable rcv amp gpio %d\n", __func__, HAC_PAMP_GPIO);
-				gpio_direction_output(RCV_PAMP_GPIO, 0);
-				gpio_direction_output(PM8921_GPIO_PM_TO_SYS(RCV_SPK_SEL_PMGPIO), 0);
-				usleep_range(20000,20000);
-			}
-			gpio_free(RCV_PAMP_GPIO);
-		}
+		gpio_free(RCV_PAMP_GPIO);
+	}
 	return 1;
 }
 
@@ -762,28 +746,28 @@ static int msm_set_spk(struct snd_kcontrol *kcontrol,
 }
 
 static int msm_get_spk9887mute(struct snd_kcontrol *kcontrol,
-       struct snd_ctl_elem_value *ucontrol) {
-       pr_debug("%s: msm_spk9887_control = %d", __func__, msm_spk9887mute_control);
-       ucontrol->value.integer.value[0] = msm_spk9887mute_control;
-       return 0;
+		struct snd_ctl_elem_value *ucontrol) {
+	pr_debug("%s: msm_spk9887_control = %d", __func__, msm_spk9887mute_control);
+	ucontrol->value.integer.value[0] = msm_spk9887mute_control;
+	return 0;
 }
 static int msm_set_spk9887mute(struct snd_kcontrol *kcontrol,
-       struct snd_ctl_elem_value *ucontrol) {
+		struct snd_ctl_elem_value *ucontrol) {
 
-       
-       
 
-       msm_spk9887mute_control = ucontrol->value.integer.value[0];
-       pr_info("@@## %s() %d\n", __func__,msm_spk9887mute_control);
-       if (msm_spk9887mute_control)
-       {
-               msleep(200);
-               set_tfa9887_spkamp(0, 0);
-       }
-       else
-               set_tfa9887_spkamp(1, 0);
 
-       return 1;
+
+	msm_spk9887mute_control = ucontrol->value.integer.value[0];
+	pr_info("@@## %s() %d\n", __func__,msm_spk9887mute_control);
+	if (msm_spk9887mute_control)
+	{
+		msleep(200);
+		set_tfa9887_spkamp(0, 0);
+	}
+	else
+		set_tfa9887_spkamp(1, 0);
+
+	return 1;
 }
 
 static int msm_spkramp_event(struct snd_soc_dapm_widget *w,
@@ -1854,20 +1838,21 @@ static struct snd_soc_ops msm_slimbus_4_be_ops = {
 
 static struct snd_soc_dai_link msm_dai[] = {
 #if 0
-// this is kindof missing from logs, pairing to stub, but commented for now, as it doesnt work, and probably not needed
-        {
-              .name = "MSM8960 MM_STUB",
-              .stream_name = "MM_STUB",
-              .cpu_dai_name = "MM_STUB",
-              .platform_name  = "msm-pcm-dsp",
-              .dynamic = 1,
-              .trigger = {SND_SOC_DPCM_TRIGGER_POST, SND_SOC_DPCM_TRIGGER_POST},
-              .codec_dai_name = "snd-soc-dummy-dai",
-              .codec_name = "snd-soc-dummy",
-              .ignore_suspend = 1,
-              .ignore_pmdown_time = 1,
-              .be_id = MSM_FRONTEND_DAI_MULTIMEDIA_STUB
-        },
+	/* this is kindof missing from logs, pairing to stub, but commented
+	 * for now, as it doesnt work, and probably not needed */
+	{
+		.name = "MSM8960 MM_STUB",
+		.stream_name = "MM_STUB",
+		.cpu_dai_name = "MM_STUB",
+		.platform_name  = "msm-pcm-dsp",
+		.dynamic = 1,
+		.trigger = {SND_SOC_DPCM_TRIGGER_POST, SND_SOC_DPCM_TRIGGER_POST},
+		.codec_dai_name = "snd-soc-dummy-dai",
+		.codec_name = "snd-soc-dummy",
+		.ignore_suspend = 1,
+		.ignore_pmdown_time = 1,
+		.be_id = MSM_FRONTEND_DAI_MULTIMEDIA_STUB
+	},
 #endif
 	{
 		.name = "MSM8960 Media1",

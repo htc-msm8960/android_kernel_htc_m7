@@ -114,6 +114,7 @@ static int __init m7_audio_init(void)
 	
 	gpio_request(RCV_PAMP_GPIO, "AUDIO_RCV_AMP");
 	gpio_tlmm_config(GPIO_CFG(67, 0, GPIO_CFG_OUTPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), GPIO_CFG_DISABLE);
+	gpio_free(RCV_PAMP_GPIO);
 	htc_register_q6asm_ops(&qops);
 	htc_register_pcm_routing_ops(&rops);
 	htc_register_compr_q6_ops(&cops);
