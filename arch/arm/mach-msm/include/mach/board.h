@@ -652,7 +652,7 @@ struct msm_hdmi_platform_data {
 	int (*gpio_config)(int on);
 	int (*init_irq)(void);
 	bool (*check_hdcp_hw_support)(void);
-	bool (*foundry)(void);
+	bool (*source)(void);
 	bool is_mhl_enabled;
 	mhl_driving_params *driving_params;
 	int dirving_params_count;
