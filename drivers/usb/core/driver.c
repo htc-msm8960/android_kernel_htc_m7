@@ -1393,6 +1393,15 @@ int usb_suspend(struct device *dev, pm_message_t msg)
 {
 	struct usb_device	*udev = to_usb_device(dev);
 
+	if (udev->bus->skip_resume) {
+   	 if (udev->state == USB_STATE_SUSPENDED) {
+    	  return 0;
+   	 } else {
+     	 dev_err(dev, "abort suspend\n");
+      	return -EBUSY;
+    	}
+ 	 }
+
 	unbind_no_pm_drivers_interfaces(udev);
 
 	/* From now on we are sure all drivers support suspend/resume
@@ -1422,13 +1431,16 @@ int usb_resume(struct device *dev, pm_message_t msg)
 	struct usb_device	*udev = to_usb_device(dev);
 	int			status;
 
-	/* For all calls, take the device back to full power and
-	 * tell the PM core in case it was autosuspended previously.
-	 * Unbind the interfaces that will need rebinding later,
-	 * because they fail to support reset_resume.
-	 * (This can't be done in usb_resume_interface()
-	 * above because it doesn't own the right set of locks.)
-	 */
+	/*
+         * Some buses would like to keep their devices in suspend
+         * state after system resume.  Their resume happen when
+         * a remote wakeup is detected or interface driver start
+         * I/O.
+         */
+
+	  if (udev->bus->skip_resume)
+               return 0;
+
 	pm_runtime_get_sync(dev->parent);
 	status = usb_resume_both(udev, msg);
 	if (status == 0) {
