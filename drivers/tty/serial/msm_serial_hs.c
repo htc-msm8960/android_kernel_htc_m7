@@ -2136,7 +2136,6 @@ static int msm_hs_startup(struct uart_port *uport)
 	spin_unlock_irqrestore(&uport->lock, flags);
 
 	pm_runtime_enable(uport->dev);
-	pm_runtime_get_sync(uport->dev);
 
 	return 0;
 
@@ -2298,8 +2297,6 @@ static int __devinit msm_hs_probe(struct platform_device *pdev)
 	uport = &msm_uport->uport;
 
 	uport->dev = &pdev->dev;
-
-	platform_set_drvdata(pdev, uport);
 
 	resource = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (unlikely(!resource))
@@ -2532,13 +2529,8 @@ static void msm_hs_shutdown(struct uart_port *uport)
 	wait_event(msm_uport->rx.wait, msm_uport->rx.flush == FLUSH_SHUTDOWN);
 	tasklet_kill(&msm_uport->rx.tlet);
 	cancel_delayed_work_sync(&msm_uport->rx.flip_insert_work);
-
-	/* Free the interrupt */
-	free_irq(uport->irq, msm_uport);
-
 	flush_workqueue(msm_uport->hsuart_wq);
 	pm_runtime_disable(uport->dev);
-	pm_runtime_put_sync(uport->dev);
 
 	/* Disable the transmitter */
 	msm_hs_write(uport, UARTDM_CR_ADDR, UARTDM_CR_TX_DISABLE_BMSK);
@@ -2565,6 +2557,8 @@ static void msm_hs_shutdown(struct uart_port *uport)
 	if (use_low_power_wakeup(msm_uport))
 		irq_set_irq_wake(msm_uport->wakeup.irq, 0);
 
+	
+	free_irq(uport->irq, msm_uport);
 	if (use_low_power_wakeup(msm_uport))
 		free_irq(msm_uport->wakeup.irq, msm_uport);
 
