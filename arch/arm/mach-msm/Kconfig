@@ -2641,10 +2641,11 @@ config MACH_MONARUDO
 	  Support for the HTC APQ8064 MONARUDO.
 
 config MACH_M7_UL
-        depends on ARCH_APQ8064
-        bool "APQ8064 M7_UL"
-        help
-          Support for the HTC APQ8064 M7_UL.
+	depends on ARCH_APQ8064
+	bool "APQ8064 M7_UL"
+	select FB_MSM_MIPI_DSI
+	help
+	  Support for the HTC APQ8064 M7_UL.
 
 config QSC_MODEM
         default n
