@@ -57,7 +57,10 @@
 #define TOP_SPK_AMP_POS		0x4
 #define TOP_SPK_AMP_NEG		0x8
 #define TOP_SPK_AMP		0x10
-
+#define HS_AMP_POS		0x20
+#define HS_AMP_NEG		0x40
+#define RCV_AMP_POS		0x80
+#define RCV_AMP_NEG		0x100
 
 #define GPIO_AUX_PCM_DOUT 43
 #define GPIO_AUX_PCM_DIN 44
@@ -77,11 +80,12 @@
 
 #define TABLA_MBHC_DEF_BUTTONS 8
 #define TABLA_MBHC_DEF_RLOADS 5
+
 #define HAC_PAMP_GPIO	6
 #define RCV_PAMP_GPIO    67
 #define RCV_SPK_SEL_PMGPIO    24
+
 static int msm_hac_control;
-static int msm_rcv_control;
 static int aux_pcm_open = 0;
 enum {
 	SLIM_1_RX_1 = 145, 
@@ -101,9 +105,10 @@ enum {
 };
 
 static int msm_spk_control;
-static int msm_spk9887mute_control = 0;
 static int msm_ext_bottom_spk_pamp;
 static int msm_ext_top_spk_pamp;
+static int msm_hs_pamp;
+static int msm_rcv_pamp;
 static int msm_slim_0_rx_ch = 1;
 static int msm_slim_0_tx_ch = 1;
 static struct clk *mi2s_rx_osr_clk;
@@ -149,6 +154,30 @@ static struct tabla_mbhc_config mbhc_cfg = {
 	.gpio_level_insert = 1,
 };
 
+static inline int param_is_mask(int p)
+{
+	return ((p >= SNDRV_PCM_HW_PARAM_FIRST_MASK) &&
+		(p <= SNDRV_PCM_HW_PARAM_LAST_MASK));
+}
+
+static inline struct snd_mask *param_to_mask(struct snd_pcm_hw_params *p, int n)
+{
+	return &(p->masks[n - SNDRV_PCM_HW_PARAM_FIRST_MASK]);
+}
+
+static void param_set_mask(struct snd_pcm_hw_params *p, int n, unsigned bit)
+{
+	if (bit >= SNDRV_MASK_MAX)
+		return;
+	if (param_is_mask(n)) {
+		struct snd_mask *m = param_to_mask(p, n);
+		m->bits[0] = 0;
+		m->bits[1] = 0;
+		m->bits[bit >> 5] |= (1 << (bit & 31));
+	}
+}
+
+
 static struct mutex cdc_mclk_mutex;
 static struct mutex aux_pcm_mutex;
 
@@ -180,8 +209,9 @@ static int msm8960_mi2s_hw_params(struct snd_pcm_substream *substream,
 	int rate = params_rate(params);
 	int bit_clk_set = 0;
 
+	
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
-		bit_clk_set = 12288000/(rate * 2 * 16);
+		bit_clk_set = 18432000/(rate * 2 * 24);
 		clk_set_rate(mi2s_rx_bit_clk, bit_clk_set);
 	}
 	return 1;
@@ -215,28 +245,28 @@ static int configure_mi2s_rx_gpio(void)
 {
 	int rtn;
 
-	rtn	= gpio_request(GPIO_MI2S_RX_SCLK, "MI2S_RX_SCLK");
+	rtn = gpio_request(GPIO_MI2S_RX_SCLK, "MI2S_RX_SCLK");
 	if (rtn) {
 		pr_err("%s: Failed to request gpio %d\n", __func__,
 			   GPIO_MI2S_RX_SCLK);
 		goto err;
 	}
 
-	rtn	= gpio_request(GPIO_MI2S_RX_WS, "MI2S_RX_WS");
+	rtn = gpio_request(GPIO_MI2S_RX_WS, "MI2S_RX_WS");
 	if (rtn) {
 		pr_err("%s: Failed to request gpio %d\n", __func__,
 			   GPIO_MI2S_RX_WS);
 		goto err;
 	}
 
-	rtn	= gpio_request(GPIO_MI2S_RX_DOUT0, "MI2S_RX_DOUT0");
+	rtn = gpio_request(GPIO_MI2S_RX_DOUT0, "MI2S_RX_DOUT0");
 	if (rtn) {
 		pr_err("%s: Failed to request gpio %d\n", __func__,
 			   GPIO_MI2S_RX_DOUT0);
 		goto err;
 	}
 
-	rtn	= gpio_request(GPIO_MI2S_RX_DOUT3, "MI2S_RX_DOUT3");
+	rtn = gpio_request(GPIO_MI2S_RX_DOUT3, "MI2S_RX_DOUT3");
 	if (rtn) {
 		pr_err("%s: Failed to request gpio %d\n", __func__,
 			   GPIO_MI2S_RX_DOUT3);
@@ -245,6 +275,7 @@ static int configure_mi2s_rx_gpio(void)
 err:
 	return rtn;
 }
+
 static int msm8960_mi2s_startup(struct snd_pcm_substream *substream)
 {
 	int ret = 0;
@@ -255,7 +286,8 @@ static int msm8960_mi2s_startup(struct snd_pcm_substream *substream)
 		configure_mi2s_rx_gpio();
 		mi2s_rx_osr_clk = clk_get(cpu_dai->dev, "osr_clk");
 		if (mi2s_rx_osr_clk) {
-			clk_set_rate(mi2s_rx_osr_clk, 12288000);
+			
+			clk_set_rate(mi2s_rx_osr_clk, 18432000);
 			clk_prepare_enable(mi2s_rx_osr_clk);
 		}
 		mi2s_rx_bit_clk = clk_get(cpu_dai->dev, "bit_clk");
@@ -290,13 +322,11 @@ static int msm8960_mi2s_startup(struct snd_pcm_substream *substream)
 	return ret;
 }
 
-
 static struct snd_soc_ops msm8960_mi2s_be_ops = {
 	.startup = msm8960_mi2s_startup,
 	.shutdown = msm8960_mi2s_shutdown,
 	.hw_params = msm8960_mi2s_hw_params,
 };
-
 
 static int msm8960_i2s_hw_params(struct snd_pcm_substream *substream,
 			struct snd_pcm_hw_params *params)
@@ -315,11 +345,11 @@ static int msm8960_i2s_hw_params(struct snd_pcm_substream *substream,
 static int msm8960_i2s_tx_free_gpios(void)
 {
 
-        static uint32_t audio_i2s_table[] = {
-            GPIO_CFG(GPIO_I2S_TX_PCLK, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA),
-            GPIO_CFG(GPIO_I2S_TX_WS, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA),
-            GPIO_CFG(GPIO_I2S_TX_DIN, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA),
-        };
+	static uint32_t audio_i2s_table[] = {
+		GPIO_CFG(GPIO_I2S_TX_PCLK, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA),
+		GPIO_CFG(GPIO_I2S_TX_WS, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA),
+		GPIO_CFG(GPIO_I2S_TX_DIN, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA),
+	};
 
 	gpio_free(GPIO_I2S_TX_DIN);
 	gpio_free(GPIO_I2S_TX_WS);
@@ -357,28 +387,28 @@ static int configure_i2s_tx_gpio(void)
 		GPIO_CFG(GPIO_I2S_TX_DIN, 1, GPIO_CFG_INPUT, GPIO_CFG_NO_PULL, GPIO_CFG_8MA),
 	};
 
-	rtn	= gpio_request(GPIO_I2S_TX_PCLK, "I2S_TX_PCLK");
+	rtn = gpio_request(GPIO_I2S_TX_PCLK, "I2S_TX_PCLK");
 	if (rtn) {
 		pr_err("%s: Failed to request gpio %d\n", __func__,
 			   GPIO_I2S_TX_PCLK);
 		goto err;
 	}
-	rtn	= gpio_request(GPIO_I2S_TX_WS, "I2S_TX_WS");
+	rtn = gpio_request(GPIO_I2S_TX_WS, "I2S_TX_WS");
 	if (rtn) {
 		pr_err("%s: Failed to request gpio %d\n", __func__,
 			   GPIO_I2S_TX_WS);
 		goto err;
 	}
-	rtn	= gpio_request(GPIO_I2S_TX_DIN, "I2S_TX_DIN");
+	rtn = gpio_request(GPIO_I2S_TX_DIN, "I2S_TX_DIN");
 	if (rtn) {
 		pr_err("%s: Failed to request gpio %d\n", __func__,
 			   GPIO_I2S_TX_DIN);
 		goto err;
 	}
 
-        gpio_tlmm_config(audio_i2s_table[0], GPIO_CFG_ENABLE);
-        gpio_tlmm_config(audio_i2s_table[1], GPIO_CFG_ENABLE);
-        gpio_tlmm_config(audio_i2s_table[2], GPIO_CFG_ENABLE);
+	gpio_tlmm_config(audio_i2s_table[0], GPIO_CFG_ENABLE);
+	gpio_tlmm_config(audio_i2s_table[1], GPIO_CFG_ENABLE);
+	gpio_tlmm_config(audio_i2s_table[2], GPIO_CFG_ENABLE);
 
 err:
 	return rtn;
@@ -439,7 +469,59 @@ static struct snd_soc_ops msm8960_i2s_be_ops = {
 
 static void msm_ext_spk_power_amp_on(u32 spk)
 {
-	if (spk & (BOTTOM_SPK_AMP_POS | BOTTOM_SPK_AMP_NEG)) {
+	if (spk & (RCV_AMP_POS | RCV_AMP_NEG)) {
+		if ((msm_rcv_pamp & RCV_AMP_POS) &&
+			(msm_rcv_pamp & RCV_AMP_NEG)) {
+
+			pr_debug("%s() HS Ampl already "
+				"turned on. spk = 0x%08x\n", __func__, spk);
+			return;
+		}
+
+		msm_rcv_pamp |= spk;
+
+		if ((msm_rcv_pamp & RCV_AMP_POS) &&
+			(msm_rcv_pamp & RCV_AMP_NEG)) {
+
+
+			pr_info("rcv amp on++");
+			gpio_direction_output(RCV_PAMP_GPIO, 1);
+			gpio_direction_output(PM8921_GPIO_PM_TO_SYS(RCV_SPK_SEL_PMGPIO), 1);
+			pr_info("rcv amp on--");
+
+			pr_debug("%s: slepping 4 ms after turning on external "
+				" Bottom Speaker Ampl\n", __func__);
+			usleep_range(4000, 4000);
+		}
+	} else if (spk & (HS_AMP_POS | HS_AMP_NEG)) {
+
+		if ((msm_hs_pamp & HS_AMP_POS) &&
+			(msm_hs_pamp & HS_AMP_NEG)) {
+
+			pr_debug("%s() HS Ampl already "
+				"turned on. spk = 0x%08x\n", __func__, spk);
+			return;
+		}
+
+		msm_hs_pamp |= spk;
+
+		if ((msm_hs_pamp & HS_AMP_POS) &&
+			(msm_hs_pamp & HS_AMP_NEG)) {
+			
+			pr_info("hs amp on++");
+			if (query_tpa6185()) {
+				gpio_direction_output(PM8921_GPIO_PM_TO_SYS(10), 1);
+				set_handset_amp(1);
+			}
+
+			if (query_rt5501())
+				set_rt5501_amp(1);
+			pr_info("hs amp on--");
+			pr_debug("%s: slepping 4 ms after turning on external "
+				" Bottom Speaker Ampl\n", __func__);
+			usleep_range(4000, 4000);
+		}
+	} else if (spk & (BOTTOM_SPK_AMP_POS | BOTTOM_SPK_AMP_NEG)) {
 
 		if ((msm_ext_bottom_spk_pamp & BOTTOM_SPK_AMP_POS) &&
 			(msm_ext_bottom_spk_pamp & BOTTOM_SPK_AMP_NEG)) {
@@ -453,17 +535,6 @@ static void msm_ext_spk_power_amp_on(u32 spk)
 
 		if ((msm_ext_bottom_spk_pamp & BOTTOM_SPK_AMP_POS) &&
 			(msm_ext_bottom_spk_pamp & BOTTOM_SPK_AMP_NEG)) {
-
-			
-			pr_info("hs amp on++");
-                        if(query_tpa6185()) {
-                            gpio_direction_output(PM8921_GPIO_PM_TO_SYS(10), 1);
-			    set_handset_amp(1);
-                        }
-
-                        if(query_rt5501())
-                            set_rt5501_amp(1);
-			pr_info("hs amp on--");
 			pr_debug("%s: slepping 4 ms after turning on external "
 				" Bottom Speaker Ampl\n", __func__);
 			usleep_range(4000, 4000);
@@ -503,22 +574,47 @@ static void msm_ext_spk_power_amp_on(u32 spk)
 
 static void msm_ext_spk_power_amp_off(u32 spk)
 {
-	if (spk & (BOTTOM_SPK_AMP_POS | BOTTOM_SPK_AMP_NEG)) {
+	if (spk & (RCV_AMP_POS | RCV_AMP_NEG)) {
+		if (!msm_rcv_pamp)
+			return;
 
-		if (!msm_ext_bottom_spk_pamp)
+
+		pr_info("rcv amp off ++");
+		gpio_direction_output(RCV_PAMP_GPIO, 0);
+		gpio_direction_output(PM8921_GPIO_PM_TO_SYS(RCV_SPK_SEL_PMGPIO), 0);
+		pr_info("rcv amp off --");
+
+		msm_rcv_pamp = 0;
+
+		pr_debug("%s: sleeping 4 ms after turning off external Bottom"
+			" Speaker Ampl\n", __func__);
+
+		usleep_range(4000, 4000);
+	} else if (spk & (HS_AMP_POS | HS_AMP_NEG)) {
+		if (!msm_hs_pamp)
 			return;
 
 		
 		pr_info("hs amp off ++");
-                if(query_tpa6185()) {
-		    set_handset_amp(0);
-                    gpio_direction_output(PM8921_GPIO_PM_TO_SYS(10), 0);
-                }
+		if (query_tpa6185()) {
+			set_handset_amp(0);
+			gpio_direction_output(PM8921_GPIO_PM_TO_SYS(10), 0);
+		}
 
-                if(query_rt5501())
-                    set_rt5501_amp(0);
+		if (query_rt5501())
+			set_rt5501_amp(0);
 		pr_info("hs amp off --");
 
+		msm_hs_pamp = 0;
+
+		pr_debug("%s: sleeping 4 ms after turning off external Bottom"
+				" Speaker Ampl\n", __func__);
+
+		usleep_range(4000, 4000);
+	} else if (spk & (BOTTOM_SPK_AMP_POS | BOTTOM_SPK_AMP_NEG)) {
+
+		if (!msm_ext_bottom_spk_pamp)
+			return;
 		msm_ext_bottom_spk_pamp = 0;
 
 		pr_debug("%s: sleeping 4 ms after turning off external Bottom"
@@ -559,81 +655,6 @@ static void msm_ext_spk_power_amp_off(u32 spk)
 	}
 }
 
-static int msm_get_hac(struct snd_kcontrol *kcontrol,
-	struct snd_ctl_elem_value *ucontrol)
-{
-	pr_info("%s: msm_hac_control = %d", __func__, msm_hac_control);
-	ucontrol->value.integer.value[0] = msm_hac_control;
-	return 0;
-}
-static int msm_set_hac(struct snd_kcontrol *kcontrol,
-	struct snd_ctl_elem_value *ucontrol)
-{
-	int ret = 0;
-	if (msm_hac_control == ucontrol->value.integer.value[0])
-		return 0;
-
-	msm_hac_control = ucontrol->value.integer.value[0];
-	pr_info("%s()  %d\n", __func__, msm_hac_control);
-	ret = gpio_request(HAC_PAMP_GPIO, "AUDIO_HAC_AMP");
-	if (ret) {
-		pr_err("%s: Error requesting GPIO %d\n", __func__,
-			HAC_PAMP_GPIO);
-			return ret;
-		}
-		else {
-			if (msm_hac_control) {
-				pr_info("%s: enable hac amp gpio %d\n", __func__, HAC_PAMP_GPIO);
-				gpio_direction_output(HAC_PAMP_GPIO, 1);
-			} else {
-				pr_info("%s: disable hac amp gpio %d\n", __func__, HAC_PAMP_GPIO);
-				gpio_direction_output(HAC_PAMP_GPIO, 0);
-			}
-			gpio_free(HAC_PAMP_GPIO);
-		}
-	return 1;
-}
-
-static int msm_get_rcv_amp(struct snd_kcontrol *kcontrol,
-	struct snd_ctl_elem_value *ucontrol)
-{
-	pr_info("%s: msm_rcv_control = %d", __func__, msm_rcv_control);
-	ucontrol->value.integer.value[0] = msm_rcv_control;
-	return 0;
-}
-static int msm_set_rcv_amp(struct snd_kcontrol *kcontrol,
-	struct snd_ctl_elem_value *ucontrol)
-{
-	int ret = 0;
-
-	if (msm_rcv_control == ucontrol->value.integer.value[0])
-		return 0;
-
-	msm_rcv_control = ucontrol->value.integer.value[0];
-	pr_info("%s()  %d\n", __func__, msm_rcv_control);
-	ret = gpio_request(RCV_PAMP_GPIO, "AUDIO_RCV_AMP");
-	if (ret) {
-		pr_err("%s: Error requesting GPIO %d\n", __func__,
-			RCV_PAMP_GPIO);
-			return ret;
-		}
-		else {
-			if (msm_rcv_control) {
-				pr_info("%s: enable rcv amp gpio %d\n", __func__, HAC_PAMP_GPIO);
-				usleep_range(20000,20000);
-				ret =gpio_direction_output(RCV_PAMP_GPIO, 1);
-				ret = gpio_direction_output(PM8921_GPIO_PM_TO_SYS(RCV_SPK_SEL_PMGPIO), 1);
-			} else {
-				pr_info("%s: disable rcv amp gpio %d\n", __func__, HAC_PAMP_GPIO);
-				gpio_direction_output(RCV_PAMP_GPIO, 0);
-				gpio_direction_output(PM8921_GPIO_PM_TO_SYS(RCV_SPK_SEL_PMGPIO), 0);
-				usleep_range(20000,20000);
-			}
-			gpio_free(RCV_PAMP_GPIO);
-		}
-	return 1;
-}
-
 static void msm_ext_control(struct snd_soc_codec *codec)
 {
 	struct snd_soc_dapm_context *dapm = &codec->dapm;
@@ -644,11 +665,19 @@ static void msm_ext_control(struct snd_soc_codec *codec)
 		snd_soc_dapm_enable_pin(dapm, "Ext Spk Bottom Neg");
 		snd_soc_dapm_enable_pin(dapm, "Ext Spk Top Pos");
 		snd_soc_dapm_enable_pin(dapm, "Ext Spk Top Neg");
+		snd_soc_dapm_enable_pin(dapm, "Ext Hs Pos");
+		snd_soc_dapm_enable_pin(dapm, "Ext Hs Neg");
+		snd_soc_dapm_enable_pin(dapm, "Ext Rcv Pos");
+		snd_soc_dapm_enable_pin(dapm, "Ext Rcv Neg");
 	} else {
 		snd_soc_dapm_disable_pin(dapm, "Ext Spk Bottom Pos");
 		snd_soc_dapm_disable_pin(dapm, "Ext Spk Bottom Neg");
 		snd_soc_dapm_disable_pin(dapm, "Ext Spk Top Pos");
 		snd_soc_dapm_disable_pin(dapm, "Ext Spk Top Neg");
+		snd_soc_dapm_disable_pin(dapm, "Ext Hs Pos");
+		snd_soc_dapm_disable_pin(dapm, "Ext Hs Neg");
+		snd_soc_dapm_disable_pin(dapm, "Ext Rcv Pos");
+		snd_soc_dapm_disable_pin(dapm, "Ext Rcv Neg");
 	}
 
 	snd_soc_dapm_sync(dapm);
@@ -661,6 +690,7 @@ static int msm_get_spk(struct snd_kcontrol *kcontrol,
 	ucontrol->value.integer.value[0] = msm_spk_control;
 	return 0;
 }
+
 static int msm_set_spk(struct snd_kcontrol *kcontrol,
 	struct snd_ctl_elem_value *ucontrol)
 {
@@ -675,35 +705,10 @@ static int msm_set_spk(struct snd_kcontrol *kcontrol,
 	return 1;
 }
 
-static int msm_get_spk9887mute(struct snd_kcontrol *kcontrol,
-       struct snd_ctl_elem_value *ucontrol) {
-       pr_debug("%s: msm_spk9887_control = %d", __func__, msm_spk9887mute_control);
-       ucontrol->value.integer.value[0] = msm_spk9887mute_control;
-       return 0;
-}
-static int msm_set_spk9887mute(struct snd_kcontrol *kcontrol,
-       struct snd_ctl_elem_value *ucontrol) {
-
-       
-       
-
-       msm_spk9887mute_control = ucontrol->value.integer.value[0];
-       pr_info("@@## %s() %d\n", __func__,msm_spk9887mute_control);
-       if (msm_spk9887mute_control)
-       {
-               msleep(200);
-               set_tfa9887_spkamp(0, 0);
-       }
-       else
-               set_tfa9887_spkamp(1, 0);
-
-       return 1;
-}
-
 static int msm_spkramp_event(struct snd_soc_dapm_widget *w,
 	struct snd_kcontrol *k, int event)
 {
-	pr_debug("%s() %x\n", __func__, SND_SOC_DAPM_EVENT_ON(event));
+	pr_info("%s() wname %s %x\n", __func__, w->name,SND_SOC_DAPM_EVENT_ON(event));
 
 	if (SND_SOC_DAPM_EVENT_ON(event)) {
 		if (!strncmp(w->name, "Ext Spk Bottom Pos", 18))
@@ -714,6 +719,14 @@ static int msm_spkramp_event(struct snd_soc_dapm_widget *w,
 			msm_ext_spk_power_amp_on(TOP_SPK_AMP_POS);
 		else if  (!strncmp(w->name, "Ext Spk Top Neg", 15))
 			msm_ext_spk_power_amp_on(TOP_SPK_AMP_NEG);
+		else if (!strncmp(w->name, "Ext Hs Pos", 10))
+			msm_ext_spk_power_amp_on(HS_AMP_POS);
+		else if  (!strncmp(w->name, "Ext Hs Neg", 10))
+			msm_ext_spk_power_amp_on(HS_AMP_NEG);
+		else if (!strncmp(w->name, "Ext Rcv Pos", 11))
+			msm_ext_spk_power_amp_on(RCV_AMP_POS);
+		else if  (!strncmp(w->name, "Ext Rcv Neg", 11))
+			msm_ext_spk_power_amp_on(RCV_AMP_NEG);
 		else if  (!strncmp(w->name, "Ext Spk Top", 12))
 			msm_ext_spk_power_amp_on(TOP_SPK_AMP);
 		else {
@@ -731,6 +744,14 @@ static int msm_spkramp_event(struct snd_soc_dapm_widget *w,
 			msm_ext_spk_power_amp_off(TOP_SPK_AMP_POS);
 		else if  (!strncmp(w->name, "Ext Spk Top Neg", 15))
 			msm_ext_spk_power_amp_off(TOP_SPK_AMP_NEG);
+		else if (!strncmp(w->name, "Ext Hs Pos", 10))
+			msm_ext_spk_power_amp_off(HS_AMP_POS);
+		else if  (!strncmp(w->name, "Ext Hs Neg", 10))
+			msm_ext_spk_power_amp_off(HS_AMP_NEG);
+		else if (!strncmp(w->name, "Ext Rcv Pos", 11))
+			msm_ext_spk_power_amp_off(RCV_AMP_POS);
+		else if  (!strncmp(w->name, "Ext Rcv Neg", 11))
+			msm_ext_spk_power_amp_off(RCV_AMP_NEG);
 		else if  (!strncmp(w->name, "Ext Spk Top", 12))
 			msm_ext_spk_power_amp_off(TOP_SPK_AMP);
 		else {
@@ -829,6 +850,21 @@ static int msm_mclk_event(struct snd_soc_dapm_widget *w,
 	return 0;
 }
 
+static const struct snd_kcontrol_new extspk_switch_controls =
+	SOC_DAPM_SINGLE("Switch", 0, 0, 1, 0);
+
+static const struct snd_kcontrol_new earamp_switch_controls =
+	SOC_DAPM_SINGLE("Switch", 0, 0, 1, 0);
+
+static const struct snd_kcontrol_new spkamp_switch_controls =
+	SOC_DAPM_SINGLE("Switch", 0, 0, 1, 0);
+
+static const struct snd_kcontrol_new hsamp_switch_controls =
+	SOC_DAPM_SINGLE("Switch", 0, 0, 1, 0);
+
+static const struct snd_kcontrol_new rcvamp_switch_controls =
+	SOC_DAPM_SINGLE("Switch", 0, 0, 1, 0);
+
 static const struct snd_soc_dapm_widget apq8064_dapm_widgets[] = {
 
 	SND_SOC_DAPM_SUPPLY("MCLK",  SND_SOC_NOPM, 0, 0,
@@ -841,6 +877,11 @@ static const struct snd_soc_dapm_widget apq8064_dapm_widgets[] = {
 	SND_SOC_DAPM_SPK("Ext Spk Top Neg", msm_spkramp_event),
 	SND_SOC_DAPM_SPK("Ext Spk Top", msm_spkramp_event),
 
+	SND_SOC_DAPM_SPK("Ext Hs Pos", msm_spkramp_event),
+	SND_SOC_DAPM_SPK("Ext Hs Neg", msm_spkramp_event),
+
+	SND_SOC_DAPM_SPK("Ext Rcv Pos", msm_spkramp_event),
+	SND_SOC_DAPM_SPK("Ext Rcv Neg", msm_spkramp_event),
 	
 	SND_SOC_DAPM_MIC("Analog mic7", NULL),
 
@@ -856,6 +897,11 @@ static const struct snd_soc_dapm_widget apq8064_dapm_widgets[] = {
 	SND_SOC_DAPM_MIC("Digital Mic5", NULL),
 	SND_SOC_DAPM_MIC("Digital Mic6", NULL),
 	SND_SOC_DAPM_MIXER("Lineout Mixer", SND_SOC_NOPM, 0, 0, NULL, 0),
+	SND_SOC_DAPM_MIXER("SPK AMP EN", SND_SOC_NOPM, 0, 0, &spkamp_switch_controls, 1),
+	SND_SOC_DAPM_MIXER("HAC AMP EN", SND_SOC_NOPM, 0, 0, &earamp_switch_controls, 1),
+	SND_SOC_DAPM_MIXER("DOCK AMP EN", SND_SOC_NOPM, 0, 0, &extspk_switch_controls, 1),
+	SND_SOC_DAPM_MIXER("HS AMP EN", SND_SOC_NOPM, 0, 0, &hsamp_switch_controls, 1),
+	SND_SOC_DAPM_MIXER("RCV AMP EN", SND_SOC_NOPM, 0, 0, &rcvamp_switch_controls, 1),
 };
 
 static const struct snd_soc_dapm_route apq8064_common_audio_map[] = {
@@ -873,23 +919,36 @@ static const struct snd_soc_dapm_route apq8064_common_audio_map[] = {
 	{"Ext Spk Top Neg", NULL, "LINEOUT4"},
 	{"Ext Spk Top", NULL, "LINEOUT5"},
 
+
+	
+	{"Ext Hs Pos", NULL, "HS AMP EN"},
+	{"Ext Hs Neg", NULL, "HS AMP EN"},
+	{"HS AMP EN", "Switch", "Lineout Mixer"},
+
+	
+	{"Ext Rcv Pos", NULL, "RCV AMP EN"},
+	{"Ext Rcv Neg", NULL, "RCV AMP EN"},
+	{"RCV AMP EN", "Switch", "Lineout Mixer"},
+
+	{"Lineout Mixer", NULL, "LINEOUT3"},
+	{"Lineout Mixer", NULL, "LINEOUT1"},
 	
 	{"AMIC1", NULL, "MIC BIAS1 External"},
 	{"MIC BIAS1 External", NULL, "Analog mic7"},
- 
-	
- 	{"AMIC2", NULL, "MIC BIAS2 External"},
- 	{"MIC BIAS2 External", NULL, "Headset Mic"},
- 
-	
+
+
+	{"AMIC2", NULL, "MIC BIAS2 External"},
+	{"MIC BIAS2 External", NULL, "Headset Mic"},
+
+
 	{"AMIC3", NULL, "MIC BIAS3 External"},
 	{"MIC BIAS3 External", NULL, "ANCRight Headset Mic"},
- 
- 	{"AMIC4", NULL, "MIC BIAS1 Internal2"},
- 	{"MIC BIAS1 Internal2", NULL, "ANCLeft Headset Mic"},
- 
-        
-	
+
+	{"AMIC4", NULL, "MIC BIAS1 Internal2"},
+	{"MIC BIAS1 Internal2", NULL, "ANCLeft Headset Mic"},
+
+
+
 };
 
 static const struct snd_soc_dapm_route apq8064_mtp_audio_map[] = {
@@ -1071,12 +1130,6 @@ static const struct snd_kcontrol_new tabla_msm_controls[] = {
 			msm_incall_rec_mode_get, msm_incall_rec_mode_put),
 	SOC_ENUM_EXT("SLIM_3_RX Channels", msm_enum[1],
 		msm_slim_3_rx_ch_get, msm_slim_3_rx_ch_put),
-	SOC_ENUM_EXT("HAC AMP EN", msm_enum[0], msm_get_hac,
-		msm_set_hac),
-	SOC_ENUM_EXT("RCV AMP EN", msm_enum[0], msm_get_rcv_amp,
-		msm_set_rcv_amp),
-    SOC_ENUM_EXT("Mute9887 Function", msm_enum[0],msm_get_spk9887mute,
-            msm_set_spk9887mute),
 
 
 };
@@ -1384,6 +1437,10 @@ static int msm_audrx_init(struct snd_soc_pcm_runtime *rtd)
 	snd_soc_dapm_enable_pin(dapm, "Ext Spk Bottom Neg");
 	snd_soc_dapm_enable_pin(dapm, "Ext Spk Top Pos");
 	snd_soc_dapm_enable_pin(dapm, "Ext Spk Top Neg");
+	snd_soc_dapm_enable_pin(dapm, "Ext Hs Pos");
+	snd_soc_dapm_enable_pin(dapm, "Ext Hs Neg");
+	snd_soc_dapm_enable_pin(dapm, "Ext Rcv Pos");
+	snd_soc_dapm_enable_pin(dapm, "Ext Rcv Neg");
 
 	snd_soc_dapm_sync(dapm);
 
@@ -1416,7 +1473,31 @@ static int msm_slim_0_rx_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 	struct snd_interval *channels = hw_param_interval(params,
 			SNDRV_PCM_HW_PARAM_CHANNELS);
 
+	pr_debug("%s() Fixing the BE DAI format to 24bit\n", __func__);
+
+	param_set_mask(params, SNDRV_PCM_HW_PARAM_FORMAT,
+		SNDRV_PCM_FORMAT_S24_LE);
+
+	rate->min = rate->max = 48000;
+	channels->min = channels->max = msm_slim_0_rx_ch;
+
+	return 0;
+}
+
+static int msm_slim_0_stub_rx_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
+			struct snd_pcm_hw_params *params)
+{
+	struct snd_interval *rate = hw_param_interval(params,
+	SNDRV_PCM_HW_PARAM_RATE);
+
+	struct snd_interval *channels = hw_param_interval(params,
+			SNDRV_PCM_HW_PARAM_CHANNELS);
+
 	pr_debug("%s()\n", __func__);
+
+	param_set_mask(params, SNDRV_PCM_HW_PARAM_FORMAT,
+		SNDRV_PCM_FORMAT_S16_LE);
+
 	rate->min = rate->max = 48000;
 	channels->min = channels->max = msm_slim_0_rx_ch;
 
@@ -1449,6 +1530,10 @@ static int msm_slim_3_rx_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 			SNDRV_PCM_HW_PARAM_CHANNELS);
 
 	pr_debug("%s()\n", __func__);
+
+	param_set_mask(params, SNDRV_PCM_HW_PARAM_FORMAT,
+		SNDRV_PCM_FORMAT_S16_LE);
+
 	rate->min = rate->max = 48000;
 	channels->min = channels->max = msm_slim_3_rx_ch;
 
@@ -1484,6 +1569,10 @@ static int msm_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 	SNDRV_PCM_HW_PARAM_RATE);
 
 	pr_debug("%s()\n", __func__);
+
+	param_set_mask(params, SNDRV_PCM_HW_PARAM_FORMAT,
+		SNDRV_PCM_FORMAT_S16_LE);
+
 	rate->min = rate->max = 48000;
 
 	return 0;
@@ -1500,6 +1589,8 @@ static int msm_hdmi_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 
 	pr_debug("%s channels->min %u channels->max %u ()\n", __func__,
 			channels->min, channels->max);
+	param_set_mask(params, SNDRV_PCM_HW_PARAM_FORMAT,
+		SNDRV_PCM_FORMAT_S16_LE);
 
 	rate->min = rate->max = 48000;
 
@@ -1530,11 +1621,32 @@ static int msm_mi2s_rx_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 	struct snd_interval *channels = hw_param_interval(params,
 					SNDRV_PCM_HW_PARAM_CHANNELS);
 
+	pr_debug("%s() Fixing the BE DAI format to 24bit\n", __func__);
+
+	param_set_mask(params, SNDRV_PCM_HW_PARAM_FORMAT,
+		SNDRV_PCM_FORMAT_S24_LE);
+
 	rate->min = rate->max = 48000;
 	channels->min = channels->max = 1;
 #ifdef CONFIG_AMP_TFA9887L
 	channels->min = channels->max = 2;
 #endif
+
+	return 0;
+}
+
+static int msm_mi2s_tx_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
+			struct snd_pcm_hw_params *params)
+{
+	struct snd_interval *rate = hw_param_interval(params,
+	SNDRV_PCM_HW_PARAM_RATE);
+
+	pr_debug("%s()\n", __func__);
+
+	param_set_mask(params, SNDRV_PCM_HW_PARAM_FORMAT,
+		SNDRV_PCM_FORMAT_S24_LE);
+
+	rate->min = rate->max = 48000;
 
 	return 0;
 }
@@ -1579,7 +1691,11 @@ static int msm_auxpcm_be_params_fixup(struct snd_soc_pcm_runtime *rtd,
 					SNDRV_PCM_HW_PARAM_CHANNELS);
 
 	
+#ifdef CONFIG_BT_WBS_BRCM
+	rate->min = rate->max = 16000;
+#else
 	rate->min = rate->max = 8000;
+#endif
 	channels->min = channels->max = 1;
 
 	return 0;
@@ -1592,6 +1708,9 @@ static int msm_proxy_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 	SNDRV_PCM_HW_PARAM_RATE);
 
 	pr_debug("%s()\n", __func__);
+	param_set_mask(params, SNDRV_PCM_HW_PARAM_FORMAT,
+		SNDRV_PCM_FORMAT_S16_LE);
+
 	rate->min = rate->max = 48000;
 
 	return 0;
@@ -1671,7 +1790,7 @@ static int msm_auxpcm_startup(struct snd_pcm_substream *substream)
 
 	aux_pcm_open++;
 
-	if(aux_pcm_open > 1) {
+	if (aux_pcm_open > 1) {
 		mutex_unlock(&aux_pcm_mutex);
 		return 0;
 	}
@@ -1707,7 +1826,7 @@ static void msm_auxpcm_shutdown(struct snd_pcm_substream *substream)
 	mutex_lock(&aux_pcm_mutex);
 	aux_pcm_open--;
 
-	if(aux_pcm_open < 1) {
+	if (aux_pcm_open < 1) {
 		msm_aux_pcm_free_gpios();
 	}
 
@@ -1851,11 +1970,6 @@ static struct snd_soc_dai_link msm_dai[] = {
 		
 	},
 	{
-#if 0
-		.name = "INT_FM Hostless",
-		.stream_name = "INT_FM Hostless",
-		.cpu_dai_name	= "INT_FM_HOSTLESS",
-#endif
 		.name = "PRI_I2S_TX Hostless",
 		.stream_name = "PRI_I2S Hostless",
 		.cpu_dai_name	= "PRI_I2S_HOSTLESS",
@@ -2019,7 +2133,7 @@ static struct snd_soc_dai_link msm_dai[] = {
 		.codec_name     = "msm-stub-codec.1",
 		.codec_dai_name = "msm-stub-tx",
 		.no_pcm = 1,
-		.be_hw_params_fixup = msm_be_hw_params_fixup,
+		.be_hw_params_fixup = msm_mi2s_tx_be_hw_params_fixup,
 		.be_id = MSM_BACKEND_DAI_MI2S_TX,
 		.ops = &msm8960_mi2s_be_ops,
 	},
@@ -2082,7 +2196,7 @@ static struct snd_soc_dai_link msm_dai[] = {
 		.codec_dai_name = "tabla_rx2",
 		.no_pcm = 1,
 		.be_id = MSM_BACKEND_DAI_EXTPROC_RX,
-		.be_hw_params_fixup = msm_slim_0_rx_be_hw_params_fixup,
+		.be_hw_params_fixup = msm_slim_0_stub_rx_be_hw_params_fixup,
 		.init = &msm_stubrx_init,
 		.ops = &msm_be_ops,
 		.ignore_pmdown_time = 1, 
@@ -2174,7 +2288,7 @@ static struct snd_soc_dai_link msm_dai[] = {
 		.codec_dai_name	= "tabla_tx3",
 		.no_pcm = 1,
 		.be_id = MSM_BACKEND_DAI_EXTPROC_EC_TX,
-		.be_hw_params_fixup = msm_slim_0_rx_be_hw_params_fixup,
+		.be_hw_params_fixup = msm_slim_0_stub_rx_be_hw_params_fixup,
 		.ops = &msm_be_ops,
 	},
 	{
@@ -2305,6 +2419,20 @@ static struct snd_soc_dai_link msm_dai[] = {
 		.ignore_pmdown_time = 1,
 		.be_id = MSM_FRONTEND_DAI_MULTIMEDIA5,
 	},
+	{
+		.name = "Compress Stub",
+		.stream_name = "Compress Stub",
+		.cpu_dai_name	= "MM_STUB",
+		.platform_name  = "msm-pcm-hostless",
+		.dynamic = 1,
+		.trigger = {SND_SOC_DPCM_TRIGGER_POST, SND_SOC_DPCM_TRIGGER_POST},
+		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
+		.ignore_suspend = 1,
+		.ignore_pmdown_time = 1, 
+		.codec_dai_name = "snd-soc-dummy-dai",
+		.codec_name = "snd-soc-dummy",
+	},
+	
 
 };
 
