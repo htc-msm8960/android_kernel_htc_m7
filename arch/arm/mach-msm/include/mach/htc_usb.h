@@ -175,6 +175,11 @@ static char *usb_functions_rndis_adb_diag_modem[] = {
 static char *usb_functions_accessory[] = { "accessory" };
 static char *usb_functions_accessory_adb[] = { "accessory", "adb" };
 
+static char *usb_functions_audio[] = { "audio_source"};
+static char *usb_functions_audio_adb[] = { "audio_source", "adb" };
+static char *usb_functions_accessory_audio[] = { "accessory", "audio_source"};
+static char *usb_functions_accessory_audio_adb[] = { "accessory", "audio_source", "adb" };
+
 static char *usb_functions_projector[] = {
 	"mass_storage",
 	"projector",
@@ -723,6 +728,7 @@ static __maybe_unused char *usb_functions_all[] = {
 #ifdef CONFIG_USB_ANDROID_USBNET
 	"usbnet",
 #endif
+	 "audio_source",
 };
 
 static struct android_usb_product usb_products[] = {
@@ -1247,6 +1253,30 @@ static struct android_usb_product usb_products[] = {
 		.num_functions	= ARRAY_SIZE(usb_functions_accessory_adb),
 		.functions	= usb_functions_accessory_adb,
 	},
+	{ 
+		.vendor_id	= USB_ACCESSORY_VENDOR_ID,
+		.product_id	= USB_AUDIO_PRODUCT_ID,
+		.num_functions	= ARRAY_SIZE(usb_functions_audio),
+		.functions	= usb_functions_audio,
+	},
+	{
+		.vendor_id	= USB_ACCESSORY_VENDOR_ID,
+		.product_id	= USB_AUDIO_ADB_PRODUCT_ID,
+		.num_functions	= ARRAY_SIZE(usb_functions_audio_adb),
+		.functions	= usb_functions_audio_adb,
+	},
+	{
+		.vendor_id	= USB_ACCESSORY_VENDOR_ID,
+		.product_id	= USB_ACCESSORY_AUDIO_PRODUCT_ID,
+		.num_functions	= ARRAY_SIZE(usb_functions_accessory_audio),
+		.functions	= usb_functions_accessory_audio,
+	},
+	{
+		.vendor_id	= USB_ACCESSORY_VENDOR_ID,
+		.product_id	= USB_ACCESSORY_AUDIO_ADB_PRODUCT_ID,
+		.num_functions	= ARRAY_SIZE(usb_functions_accessory_audio_adb),
+		.functions	= usb_functions_accessory_audio_adb,
+	},
 #ifdef CONFIG_USB_ANDROID_MDM9K_DIAG
 	{
 		.product_id	= 0x0fd2,
@@ -1422,6 +1452,8 @@ static __maybe_unused int qsc_modem_product_id_match_array[] = {
 	0x0fbe, 0x0f71, 
 	0x0f8e, 0x0f72, 
 	0x0f8f, 0x0f73, 
+	0x0f7c, 0x0f6b, 
+	0x0f7d, 0x0f6a, 
 	-1,
 };
 

@@ -24,6 +24,7 @@ struct mdm_vddmin_resource {
 struct mdm_platform_data {
 	char *mdm_version;
 	int ramdump_delay_ms;
+	int ps_hold_delay_ms;
 	int soft_reset_inverted;
 	int early_power_on;
 	int sfr_query;

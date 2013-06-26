@@ -138,6 +138,10 @@ config SND_SOC_QDSP6V2
 	 audio drivers. This includes q6asm, q6adm,
 	 q6afe interfaces to DSP using apr.
 
+config SND_HTC_Q6_NOBUG
+	tristate "Disable Q6 BUG()."
+	default n
+
 config SND_SOC_MSM8960
 	tristate "SoC Machine driver for MSM8960 and APQ8064 boards"
 	depends on ARCH_MSM8960 || ARCH_APQ8064
@@ -188,4 +192,16 @@ config SND_SOC_MSM8660_APQ
         default n
         help
          To add support for SoC audio on APQ8060 board
+
+config SND_SOC_MSM8930_HTC
+   depends on ARCH_MSM8930
+   bool "MSM8930_HTC"
+   help
+     Support msm8930 for HTC
+
+config SND_SOC_MSM8930_FM_MI2S
+   depends on ARCH_MSM8930
+   bool "MSM8930_FM_MI2S"
+   help
+     Define msm8930 using MI2S for FM. Or using I2S for FM.
 endmenu

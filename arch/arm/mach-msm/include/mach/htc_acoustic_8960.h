@@ -32,5 +32,6 @@ struct acoustic_ops {
 };
 
 void acoustic_register_ops(struct acoustic_ops *ops);
+struct acoustic_ops *acoustic_get_ops(void);
 #endif
 

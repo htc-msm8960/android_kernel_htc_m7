@@ -384,6 +384,9 @@ static void sdio_select_driver_type(struct mmc_card *card)
 	unsigned char card_strength;
 	int err;
 
+#ifdef CONFIG_HTC_FORCE_SDIO_DRIVING_STRENGTH
+	card->host->caps |= MMC_CAP_DRIVER_TYPE_A|MMC_CAP_DRIVER_TYPE_C|MMC_CAP_DRIVER_TYPE_D; 
+#else
 	if (!(card->host->caps &
 		(MMC_CAP_DRIVER_TYPE_A |
 		 MMC_CAP_DRIVER_TYPE_C |
@@ -392,6 +395,7 @@ static void sdio_select_driver_type(struct mmc_card *card)
 
 	if (!card->host->ops->select_drive_strength)
 		return;
+#endif
 
 	if (card->host->caps & MMC_CAP_DRIVER_TYPE_A)
 		host_drv_type |= SD_DRIVER_TYPE_A;
@@ -411,9 +415,22 @@ static void sdio_select_driver_type(struct mmc_card *card)
 	if (card->sw_caps.sd3_drv_type & SD_DRIVER_TYPE_D)
 		card_drv_type |= SD_DRIVER_TYPE_D;
 
+#ifdef CONFIG_HTC_FORCE_SDIO_DRIVING_STRENGTH
+	if (CONFIG_HTC_FORCE_SDIO_DRIVING_STRENGTH == 1)
+		drive_strength = MMC_SET_DRIVER_TYPE_A;
+	else if (CONFIG_HTC_FORCE_SDIO_DRIVING_STRENGTH == 3)
+		drive_strength = MMC_SET_DRIVER_TYPE_C;
+	else if (CONFIG_HTC_FORCE_SDIO_DRIVING_STRENGTH == 4)
+		drive_strength = MMC_SET_DRIVER_TYPE_D;
+	else { 
+		drive_strength = MMC_SET_DRIVER_TYPE_B;
+	}
+	printk("SDIO.c :start to set driving type %d\n", drive_strength );
+#else
 	drive_strength = card->host->ops->select_drive_strength(
 		card->sw_caps.uhs_max_dtr,
 		host_drv_type, card_drv_type);
+#endif
 
 	
 	err = mmc_io_rw_direct(card, 0, 0, SDIO_CCCR_DRIVE_STRENGTH, 0,

@@ -80,6 +80,10 @@ else
 #snd-soc-msm8960-objs := msm8960.o
 #obj-$(CONFIG_SND_SOC_MSM8960) += snd-soc-msm8960.o
 #endif
+ifdef CONFIG_SND_SOC_MSM8930_HTC
+snd-soc-msm8960-objs := msm8930_htc.o
+obj-$(CONFIG_SND_SOC_MSM8960) += snd-soc-msm8960.o
+endif
 endif
 
 # Generic MSM drivers

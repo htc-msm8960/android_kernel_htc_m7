@@ -26,6 +26,7 @@
 #include <mach/memory.h>
 #include <mach/msm_rtb.h>
 #include <mach/system.h>
+#include <mach/msm_iomap.h>
 
 #define SENTINEL_BYTE_1 0xFF
 #define SENTINEL_BYTE_2 0xAA
@@ -230,6 +231,21 @@ noinline int uncached_logk(enum logk_event_type log_type, void *data)
 }
 EXPORT_SYMBOL(uncached_logk);
 
+#define RTB_MAGIC		0x5254424D 
+#define RTB_FOOT_PRINT_MAGIC	(RTB_FOOT_PRINT_BASE + 0x0)
+#define RTB_FOOT_PRINT_MSM_RTB	(RTB_FOOT_PRINT_BASE + 0x4)
+#define RTB_FOOT_PRINT_CPU_IDX	(RTB_FOOT_PRINT_BASE + 0x8)
+
+static void msm_rtb_save_footprint(void)
+{
+	unsigned int cpu;
+
+	*(unsigned *)RTB_FOOT_PRINT_MAGIC = (unsigned)RTB_MAGIC;
+	*(unsigned *)RTB_FOOT_PRINT_MSM_RTB = (unsigned)virt_to_phys(&msm_rtb);
+	for (cpu = 0; cpu < msm_rtb.step_size; cpu++)
+		*(unsigned *)(RTB_FOOT_PRINT_CPU_IDX + (cpu * 0x4)) = (unsigned)virt_to_phys(&per_cpu(msm_rtb_idx_cpu, cpu));
+}
+
 int msm_rtb_probe(struct platform_device *pdev)
 {
 	struct msm_rtb_platform_data *d = pdev->dev.platform_data;
@@ -279,6 +295,8 @@ int msm_rtb_probe(struct platform_device *pdev)
 	atomic_notifier_chain_register(&panic_notifier_list,
 						&msm_rtb_panic_blk);
 	msm_rtb.initialized = 1;
+	msm_rtb_save_footprint();
+
 	return 0;
 }
 

@@ -126,12 +126,11 @@ static void onewire_init_work_func(struct work_struct *work)
 			HS_LOG("No private data");
 		else {
 			HS_LOG("Private data exist");
-			closeFile(fp);
-			return;
 		}
+		closeFile(fp);
+		return;
 	} else
 		HS_LOG("%s, openFile is NULL pointer\n", __func__);
-	closeFile(fp);
 }
 
 static void onewire_closefile_work_func(struct work_struct *work)

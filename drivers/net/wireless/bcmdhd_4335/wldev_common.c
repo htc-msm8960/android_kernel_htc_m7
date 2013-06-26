@@ -336,6 +336,9 @@ int wldev_get_band(
 	return error;
 }
 
+ 
+extern void wl_cfg80211_abort_connecting(void);
+
 int wldev_set_band(
 	struct net_device *dev, uint band)
 {
@@ -346,6 +349,10 @@ int wldev_set_band(
 		if (!error)
 			dhd_bus_band_set(dev, band);
 	}
+    
+    
+    wl_cfg80211_abort_connecting();
+    
 	return error;
 }
 
@@ -445,6 +452,12 @@ get_channel_retry:
 	dhd_bus_country_set(dev, &cspec);
 	printk(KERN_INFO "[WLAN] %s: set country for %s as %s rev %d\n",
 		__func__, country_code, cspec.ccode, cspec.rev);
+
+    
+    
+    wl_cfg80211_abort_connecting();
+    
+
 	return 0;
 }
 
@@ -486,6 +499,15 @@ int wldev_set_pktfilter_enable(struct net_device *dev, int enable)
     wldev_set_pktfilter_enable_by_id(dev, 106, enable);
         printf("%s: pkt_filter id:106 %s\n", __FUNCTION__, (enable)?"enable":"disable");
 	}
+
+	if(!enable){
+		wldev_set_pktfilter_enable_by_id(dev, 107, enable);
+			printf("%s: pkt_filter id:107 %s\n", __FUNCTION__, (enable)?"enable":"disable");
+
+		wldev_set_pktfilter_enable_by_id(dev, 108, enable);
+	        printf("%s: pkt_filter id:108 %s\n", __FUNCTION__, (enable)?"enable":"disable");
+	}
+
         return 0;
 }
 #ifdef SOFTAP
@@ -659,6 +681,21 @@ wldev_set_scansuppress(struct net_device *dev,int enable)
 	}
 	
 	return 0;
+}
+
+void
+wldev_set_scanabort(struct net_device *dev)
+{
+
+	s8 iovar_buf[WLC_IOCTL_SMLEN];
+	int ret = 0;
+
+	memset(iovar_buf, 0, sizeof(iovar_buf));
+	ret = wldev_iovar_setbuf(dev, "scanabort", NULL, 0, iovar_buf,
+		sizeof(iovar_buf), NULL);
+	if (ret)
+		printf("%s failed ret = %d\n", __func__, ret);
+
 }
 
 extern int wl_softap_stop(struct net_device *dev);

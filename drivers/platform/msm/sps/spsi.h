@@ -172,6 +172,7 @@ struct sps_mem_stats {
 
 #ifdef CONFIG_DEBUG_FS
 void sps_debugfs_record(const char *);
+#endif
 
 void print_bam_reg(void *);
 
@@ -182,7 +183,8 @@ void print_bam_selected_reg(void *);
 void print_bam_pipe_selected_reg(void *, u32);
 
 void print_bam_pipe_desc_fifo(void *, u32);
-#endif
+
+void print_bam_pipe_desc_fifo(void *, u32);
 
 void *spsi_get_mem_ptr(u32 phys_addr);
 

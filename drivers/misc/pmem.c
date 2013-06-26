@@ -588,6 +588,10 @@ static int get_id(struct file *file)
 static char *get_name(struct file *file)
 {
 	int id = get_id(file);
+
+	if (id >= PMEM_MAX_DEVICES)
+		return NULL;
+
 	return pmem[id].name;
 }
 
@@ -861,6 +865,12 @@ static int pmem_release(struct inode *inode, struct file *file)
 #if PMEM_DEBUG_MSGS
 	char currtask_name[FIELD_SIZEOF(struct task_struct, comm) + 1];
 #endif
+
+	if (id >= PMEM_MAX_DEVICES) {
+		pr_err("pmem: release with out of range index(%d)", id);
+		return -EINVAL;
+	}
+
 	DLOG("releasing memory pid %u(%s) file %p(%ld) dev %s(id: %d)\n",
 		current->pid, get_task_comm(currtask_name, current),
 		file, file_count(file), get_name(file), id);
@@ -923,6 +933,11 @@ static int pmem_open(struct inode *inode, struct file *file)
 #if PMEM_DEBUG_MSGS
 	char currtask_name[FIELD_SIZEOF(struct task_struct, comm) + 1];
 #endif
+
+	if (id >= PMEM_MAX_DEVICES) {
+		pr_err("pmem: open with out of range index(%d)", id);
+		return -ENODEV;
+	}
 
 	DLOG("pid %u(%s) file %p(%ld) dev %s(id: %d)\n",
 		current->pid, get_task_comm(currtask_name, current),
@@ -1334,6 +1349,12 @@ static int pmem_allocator_system(const int id,
 static pgprot_t pmem_phys_mem_access_prot(struct file *file, pgprot_t vma_prot)
 {
 	int id = get_id(file);
+
+	if (id >= PMEM_MAX_DEVICES) {
+		pr_err("pmem: phys_mem_access_prot with out of range index(%d)", id);
+		return vma_prot;
+	}
+
 #ifdef pgprot_writecombine
 	if (pmem[id].cached == 0 || file->f_flags & O_SYNC)
 		
@@ -1493,6 +1514,11 @@ static void pmem_vma_open(struct vm_area_struct *vma)
 	struct pmem_data *data = file->private_data;
 	int id = get_id(file);
 
+	if(id >= PMEM_MAX_DEVICES) {
+		pr_err("pmem: vma_open with out of range index(%d)", id);
+		return;
+	}
+
 #if PMEM_DEBUG_MSGS
 	char currtask_name[FIELD_SIZEOF(struct task_struct, comm) + 1];
 #endif
@@ -1564,6 +1590,12 @@ static int pmem_mmap(struct file *file, struct vm_area_struct *vma)
 		pr_err("pmem: Invalid file descriptor, no private data\n");
 		return -EINVAL;
 	}
+
+	if (id >= PMEM_MAX_DEVICES) {
+		pr_err("pmem: mmap with out of range index(%d)", id);
+		return -EINVAL;
+	}
+
 	DLOG("pid %u(%s) mmap vma_size %lu on dev %s(id: %d)\n", current->pid,
 		get_task_comm(currtask_name, current), vma_size,
 		get_name(file), id);
@@ -1702,11 +1734,11 @@ int get_pmem_addr(struct file *file, unsigned long *start,
 
 	if (is_pmem_file(file)) {
 		struct pmem_data *data = file->private_data;
+		int id;
 
 		down_read(&data->sem);
-		if (has_allocation(file)) {
-			int id = get_id(file);
-
+		id = get_id(file);
+		if (id < PMEM_MAX_DEVICES && has_allocation(file)) {
 			*start = pmem[id].start_addr(id, data);
 			*len = pmem[id].len(id, data);
 			*vstart = (unsigned long)
@@ -1831,6 +1863,10 @@ void flush_pmem_file(struct file *file, unsigned long offset, unsigned long len)
 		return;
 
 	id = get_id(file);
+	if (id >= PMEM_MAX_DEVICES) {
+		pr_err("pmem: flush with out of range index(%d)", id);
+		return;
+	}
 	if (!pmem[id].cached)
 		return;
 
@@ -1912,6 +1948,10 @@ int pmem_cache_maint(struct file *file, unsigned int cmd,
 
 	data = file->private_data;
 	id = get_id(file);
+	if (id >= PMEM_MAX_DEVICES) {
+		pr_err("pmem: cache_maint with out of range index(%d)", id);
+		return -EINVAL;
+	}
 
 	if (!pmem[id].cached)
 		return 0;
@@ -2117,6 +2157,11 @@ int pmem_remap(struct pmem_region *region, struct file *file,
 	DLOG("operation %#x, region offset %ld, region len %ld\n",
 		operation, region->offset, region->len);
 
+	if (id >= PMEM_MAX_DEVICES) {
+		pr_err("pmem: remap with out of range index(%d)", id);
+		return -EINVAL;
+	}
+
 	if (!is_pmem_file(file)) {
 #if PMEM_DEBUG
 		pr_err("pmem: remap request for non-pmem file descriptor\n");
@@ -2249,6 +2294,13 @@ static void pmem_get_size(struct pmem_region *region, struct file *file)
 	struct pmem_data *data = file->private_data;
 	int id = get_id(file);
 
+	if (id >= PMEM_MAX_DEVICES) {
+		pr_err("pmem: access with out of range index(%d)", id);
+		region->offset = 0;
+		region->len = 0;
+		return;
+	}
+
 	down_read(&data->sem);
 	if (!has_allocation(file)) {
 		region->offset = 0;
@@ -2270,6 +2322,11 @@ static long pmem_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	char currtask_name[
 		FIELD_SIZEOF(struct task_struct, comm) + 1];
 #endif
+
+	if (id >= PMEM_MAX_DEVICES) {
+		pr_err("pmem: ioctl with out of range index(%d)", id);
+		return EINVAL;
+	}
 
 	DLOG("pid %u(%s) file %p(%ld) cmd %#x, dev %s(id: %d)\n",
 		current->pid, get_task_comm(currtask_name, current),

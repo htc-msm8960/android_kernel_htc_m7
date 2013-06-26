@@ -733,7 +733,6 @@ static void hdmi_msm_turn_on(void);
 static int hdmi_msm_audio_off(void);
 static int hdmi_msm_read_edid(void);
 static void hdmi_msm_hpd_off(void);
-
 #ifdef CONFIG_FB_MSM_HDMI_MHL_SII9234
 void fake_plug(bool plug)
 {
@@ -752,8 +751,6 @@ void fake_plug(bool plug)
 
 static void mhl_status_notifier_func(bool isMHL, int charging_type)
 {
-       if(!isMHL)
-			switch_set_state(&external_common_state->sdev, 0);
 }
 #endif
 static void hdmi_msm_hpd_state_work(struct work_struct *work)
@@ -2428,7 +2425,7 @@ static void hdmi_msm_video_setup(int video_format)
 	uint32 end_h     = 0;
 	uint32 start_v   = 0;
 	uint32 end_v     = 0;
-	const struct msm_hdmi_mode_timing_info *timing =
+	const struct hdmi_disp_mode_timing_type *timing =
 		hdmi_common_get_supported_mode(video_format);
 
 	
@@ -2515,7 +2512,7 @@ static void hdmi_msm_audio_acr_setup(boolean enabled, int video_format,
 	uint32 acr_pck_ctrl_reg = HDMI_INP(0x0024);
 
 	if (enabled) {
-		const struct msm_hdmi_mode_timing_info *timing =
+		const struct hdmi_disp_mode_timing_type *timing =
 			hdmi_common_get_supported_mode(video_format);
 		const struct hdmi_msm_audio_arcs *audio_arc =
 			&hdmi_msm_audio_acr_lut[0];
@@ -3710,21 +3707,21 @@ static int __devinit hdmi_msm_probe(struct platform_device *pdev)
 	hdmi_msm_state->hdmi_app_clk = clk_get(&pdev->dev, "core_clk");
 	if (IS_ERR(hdmi_msm_state->hdmi_app_clk)) {
 		DEV_ERR("'core_clk' clk not found\n");
-		rc = PTR_ERR(hdmi_msm_state->hdmi_app_clk);
+		rc = IS_ERR(hdmi_msm_state->hdmi_app_clk);
 		goto error;
 	}
 
 	hdmi_msm_state->hdmi_m_pclk = clk_get(&pdev->dev, "master_iface_clk");
 	if (IS_ERR(hdmi_msm_state->hdmi_m_pclk)) {
 		DEV_ERR("'master_iface_clk' clk not found\n");
-		rc = PTR_ERR(hdmi_msm_state->hdmi_m_pclk);
+		rc = IS_ERR(hdmi_msm_state->hdmi_m_pclk);
 		goto error;
 	}
 
 	hdmi_msm_state->hdmi_s_pclk = clk_get(&pdev->dev, "slave_iface_clk");
 	if (IS_ERR(hdmi_msm_state->hdmi_s_pclk)) {
 		DEV_ERR("'slave_iface_clk' clk not found\n");
-		rc = PTR_ERR(hdmi_msm_state->hdmi_s_pclk);
+		rc = IS_ERR(hdmi_msm_state->hdmi_s_pclk);
 		goto error;
 	}
 

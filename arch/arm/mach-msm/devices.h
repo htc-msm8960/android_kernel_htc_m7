@@ -450,3 +450,9 @@ extern struct platform_device msm8x60_device_acpuclk;
 extern struct platform_device msm8960_device_acpuclk;
 extern struct platform_device msm8064_device_acpuclk;
 extern struct platform_device msm9615_device_acpuclk;
+#ifdef CONFIG_PERFLOCK
+extern struct platform_device msm8064_device_perf_lock;
+extern struct platform_device msm8960_device_perf_lock;
+extern struct platform_device msm8930_device_perf_lock;
+extern struct platform_device msm8930aa_device_perf_lock;
+#endif

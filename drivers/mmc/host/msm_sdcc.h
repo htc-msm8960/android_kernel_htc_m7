@@ -305,8 +305,9 @@ struct msmsdcc_sps_data {
 	unsigned int			dest_pipe_index;
 	unsigned int			busy;
 	unsigned int			xfer_req_cnt;
-	bool				pipe_reset_pending;
-	bool				reset_device;
+	bool                            pipe_reset_pending;
+	bool                            reset_device;
+	bool                            reset_bam;
 	struct tasklet_struct		tlet;
 };
 
@@ -419,6 +420,7 @@ struct msmsdcc_host {
 	struct proc_dir_entry *wr_perf_proc;
 	struct proc_dir_entry *burst_proc;
 	struct proc_dir_entry *bkops_proc;
+	struct proc_dir_entry *speed_class;
 
 #ifdef CONFIG_WIFI_MMC
     bool is_runtime_resumed;

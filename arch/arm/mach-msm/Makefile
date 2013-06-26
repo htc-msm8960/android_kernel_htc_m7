@@ -470,3 +470,6 @@ obj-$(CONFIG_HTC_MONITOR) += htc_monitor.o
 obj-y += display/
 
 obj-$(CONFIG_IO_FOOTPRINT) += io_footprint.o
+
+#PWR2_ADD, @CPU Sniffer: CPU usage statistics.
+obj-y += htc_cpu_usage_stats.o

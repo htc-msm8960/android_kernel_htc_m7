@@ -196,8 +196,8 @@ void chk_logging_wakeup(void)
 			break;
 
 	if (i < driver->num_clients) {
-		if ((driver->data_ready[i] & USER_SPACE_DATA_TYPE) == 0) {
-			driver->data_ready[i] |= USER_SPACE_DATA_TYPE;
+		if ((driver->data_ready[i] & USERMODE_DIAGFWD) == 0) {
+			driver->data_ready[i] |= USERMODE_DIAGFWD;
 			pr_debug("diag: Force wakeup of logging process\n");
 			wake_up_interruptible(&driver->wait_q);
 		}
@@ -310,7 +310,7 @@ drop:
 #if DIAG_XPST && !defined(CONFIG_DIAGFWD_BRIDGE_CODE)
 				type = checkcmd_modem_epst(buf);
 				if (type) {
-					modem_to_userspace(buf, write_ptr_modem->length, type, 0);
+					modem_to_userspace(buf, total_recd, type, 0);
 					return;
 				}
 				if (driver->qxdmusb_drop && driver->logging_mode == USB_MODE)
@@ -332,6 +332,7 @@ drop:
 int diag_device_write(void *buf, int proc_num, struct diag_request *write_ptr)
 {
 	int i, err = 0;
+	int foundIndex = -1;
 
 	pr_debug("proc_num: %d, logging_mode: %d\n",
 		proc_num, driver->logging_mode);
@@ -342,6 +343,7 @@ int diag_device_write(void *buf, int proc_num, struct diag_request *write_ptr)
 					driver->buf_tbl[i].buf = buf;
 					driver->buf_tbl[i].length =
 								 driver->used;
+					foundIndex = i;
 #ifdef DIAG_DEBUG
 					pr_debug("diag: ENQUEUE buf ptr"
 						   " and length is %x , %d\n",
@@ -355,7 +357,6 @@ int diag_device_write(void *buf, int proc_num, struct diag_request *write_ptr)
 #if defined(CONFIG_DIAGFWD_BRIDGE_CODE) && !defined(CONFIG_DIAG_HSIC_ON_LEGACY)
 		else if (proc_num == HSIC_DATA) {
 			unsigned long flags;
-			int foundIndex = -1;
 
 			spin_lock_irqsave(&driver->hsic_spinlock, flags);
 			for (i = 0; i < driver->poolsize_hsic_write; i++) {
@@ -387,8 +388,16 @@ int diag_device_write(void *buf, int proc_num, struct diag_request *write_ptr)
 				wake_up_interruptible(&driver->mdmwait_q);
 
 				return err;
-			} else
+			} else {
+				if (foundIndex != -1) {
+					pr_err_ratelimited("diag: In %s, cannot find logging process\n", __func__);
+					i = foundIndex;
+					driver->hsic_buf_tbl[i].buf = NULL;
+					driver->hsic_buf_tbl[i].length = 0;
+					driver->num_hsic_buf_tbl_entries--;
+				}
 				return -EINVAL;
+			}
 		} else if (proc_num == SMUX_DATA) {
 			for (i = 0; i < driver->num_qscclients; i++)
 				if (driver->qscclient_map[i].pid ==
@@ -414,8 +423,15 @@ int diag_device_write(void *buf, int proc_num, struct diag_request *write_ptr)
 			driver->data_ready[i] |= USERMODE_DIAGFWD;
 			pr_debug("diag: wake up logging process\n");
 			wake_up_interruptible(&driver->wait_q);
-		} else
+		} else {
+			if (foundIndex != -1) {
+				pr_err_ratelimited("diag: In %s, cannot find logging process\n", __func__);
+				i = foundIndex;
+				driver->buf_tbl[i].buf = buf;
+				driver->buf_tbl[i].length = 0;
+			}
 			return -EINVAL;
+		}
 	} else if (driver->logging_mode == NO_LOGGING_MODE) {
 		if (proc_num == MODEM_DATA) {
 			driver->in_busy_1 = 0;
@@ -758,11 +774,13 @@ void diag_send_data(struct diag_master_table entry, unsigned char *buf,
 	} else {
 		if (len > 0) {
 			if (entry.client_id == MODEM_PROC && driver->ch) {
+#if 0
 				if (chk_apps_master() &&
 					 (int)(*(char *)buf) == MODE_CMD)
 					if ((int)(*(char *)(buf+1)) ==
 						RESET_ID)
 						return;
+#endif
 				smd_write(driver->ch, buf, len);
 			} else if (entry.client_id == LPASS_PROC &&
 							 driver->chlpass) {
@@ -1212,6 +1230,7 @@ int diagfwd_connect(void)
 		printk(KERN_ERR "diag: unable to alloc USB req on legacy ch");
 
 	driver->usb_connected = 1;
+	driver->qxdmusb_drop = 0;
 	driver->in_busy_1 = 0;
 	driver->in_busy_2 = 0;
 	driver->in_busy_lpass_1 = 0;
@@ -1247,6 +1266,7 @@ int diagfwd_disconnect(void)
 	driver->debug_flag = 1;
 	usb_diag_free_req(driver->legacy_ch);
 	if (driver->logging_mode == USB_MODE) {
+		driver->qxdmusb_drop = 1;
 		driver->in_busy_1 = 1;
 		driver->in_busy_2 = 1;
 		driver->in_busy_lpass_1 = 1;
@@ -1330,6 +1350,14 @@ int diagfwd_read_complete(struct diag_request *diag_read_ptr)
 		       DUMP_PREFIX_ADDRESS, diag_read_ptr->buf,
 		       diag_read_ptr->actual, 1);
 #endif 
+#if DIAG_XPST && !defined(CONFIG_DIAGFWD_BRIDGE_CODE)
+		if (driver->nohdlc) {
+			driver->usb_read_ptr->buf = driver->usb_buf_out;
+			driver->usb_read_ptr->length = USB_MAX_OUT_BUF;
+			usb_diag_read(driver->legacy_ch, driver->usb_read_ptr);
+			return 0;
+		}
+#endif
 		if (driver->logging_mode == USB_MODE) {
 			if (status != -ECONNRESET && status != -ESHUTDOWN)
 				queue_work(driver->diag_wq,

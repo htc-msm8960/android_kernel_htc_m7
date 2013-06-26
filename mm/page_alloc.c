@@ -1617,7 +1617,7 @@ __alloc_pages_direct_compact(gfp_t gfp_mask, unsigned int order,
 {
 	struct page *page;
 
-	if (!order)
+	if (!order || (gfp_mask & __GFP_NO_COMPACT))
 		return NULL;
 
 	if (compaction_deferred(preferred_zone, order)) {

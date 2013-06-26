@@ -742,7 +742,7 @@
 
 struct slaveirq_dev_data {
 	struct miscdevice dev;
-#ifdef CONFIG_M7_CIR_ALWAYS
+#ifdef CONFIG_CIR_ALWAYS_READY
 	struct i2c_client *slave_client;
 #endif
 	struct mpuirq_data data;
@@ -754,7 +754,7 @@ struct slaveirq_dev_data {
 	struct work_struct bma_irq_work;
 	struct i2c_adapter * adapter;
 	struct input_dev *input;
-#ifdef CONFIG_M7_CIR_ALWAYS
+#ifdef CONFIG_CIR_ALWAYS_READY
 	struct input_dev *input_cir;
 #endif
 };
@@ -891,7 +891,7 @@ static const struct file_operations slaveirq_fops = {
 	.open = slaveirq_open,
 	.release = slaveirq_release,
 };
-#ifdef CONFIG_M7_CIR_ALWAYS
+#ifdef CONFIG_CIR_ALWAYS_READY
 static void bma250_irq_work_func(struct work_struct *work)
 {
 
@@ -935,7 +935,7 @@ static irqreturn_t bma250_irq_handler(int irq, void *handle)
 }
 #endif
 int slaveirq_init(struct i2c_adapter *slave_adapter,
-#ifdef CONFIG_M7_CIR_ALWAYS
+#ifdef CONFIG_CIR_ALWAYS_READY
 		  struct i2c_client  *client,
 #endif
 		  struct ext_slave_platform_data *pdata,
@@ -945,7 +945,7 @@ int slaveirq_init(struct i2c_adapter *slave_adapter,
 	int res;
 	struct slaveirq_dev_data *data;
 	struct input_dev *dev = NULL;
-#ifdef CONFIG_M7_CIR_ALWAYS
+#ifdef CONFIG_CIR_ALWAYS_READY
 	struct input_dev *dev_cir = NULL;
 #endif
 
@@ -966,7 +966,7 @@ int slaveirq_init(struct i2c_adapter *slave_adapter,
 	data->data_ready = 0;
 	data->timeout = 0;
 
-#ifdef CONFIG_M7_CIR_ALWAYS
+#ifdef CONFIG_CIR_ALWAYS_READY
 	data->slave_client = client;
 #endif
 
@@ -991,7 +991,7 @@ int slaveirq_init(struct i2c_adapter *slave_adapter,
 	    }
 	    data->input = dev;
 
-#ifdef CONFIG_M7_CIR_ALWAYS
+#ifdef CONFIG_CIR_ALWAYS_READY
 	    dev_cir = input_allocate_device();
 	    if (!dev_cir) {
 		goto err_allocate_input_cir_devive;
@@ -1039,7 +1039,7 @@ out_misc_register:
 out_request_irq:
 	kfree(pdata->irq_data);
 	pdata->irq_data = NULL;
-#ifdef CONFIG_M7_CIR_ALWAYS
+#ifdef CONFIG_CIR_ALWAYS_READY
 	if(dev_cir != NULL)
 	    input_unregister_device(data->input_cir);
 err_register_cir_input_device:

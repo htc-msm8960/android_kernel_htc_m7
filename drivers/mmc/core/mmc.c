@@ -17,15 +17,11 @@
 #include <linux/mmc/host.h>
 #include <linux/mmc/card.h>
 #include <linux/mmc/mmc.h>
-#include <linux/reboot.h>
 
 #include "core.h"
 #include "bus.h"
 #include "mmc_ops.h"
 #include "sd_ops.h"
-#include "../host/msm_sdcc.h"
-extern void msmsdcc_reset_and_restore(struct msmsdcc_host *host);
-extern int board_mfg_mode(void);
 
 static const unsigned int tran_exp[] = {
 	10000,		100000,		1000000,	10000000,
@@ -508,6 +504,33 @@ static int mmc_read_ext_csd(struct mmc_card *card, u8 *ext_csd)
 		strncpy(card->ext_csd.fwrev, buf, strlen(buf));
 	}
 
+	if (mmc_card_mmc(card)) {
+		char *buf;
+		int i, j;
+		ssize_t n = 0;
+		pr_info("%s: cid %08x%08x%08x%08x\n",
+			mmc_hostname(card->host),
+			card->raw_cid[0], card->raw_cid[1],
+			card->raw_cid[2], card->raw_cid[3]);
+		pr_info("%s: csd %08x%08x%08x%08x\n",
+			mmc_hostname(card->host),
+			card->raw_csd[0], card->raw_csd[1],
+			card->raw_csd[2], card->raw_csd[3]);
+
+		buf = kmalloc(512, GFP_KERNEL);
+		if (buf) {
+			for (i = 0; i < 32; i++) {
+				for (j = 511 - (16 * i); j >= 496 - (16 * i); j--)
+					n += sprintf(buf + n, "%02x", ext_csd[j]);
+				n += sprintf(buf + n, "\n");
+				pr_info("%s: ext_csd %s", mmc_hostname(card->host), buf);
+				n = 0;
+			}
+		}
+		if (buf)
+			kfree(buf);
+	}
+
 out:
 	return err;
 }
@@ -789,7 +812,6 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 	unsigned int max_dtr;
 	u32 rocr;
 	u8 *ext_csd = NULL;
-	int retry = 3;
 #ifdef CONFIG_MMC_MUST_PREVENT_WP_VIOLATION
 	mmc_get_write_protection();
 #endif
@@ -912,7 +934,7 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 	}
 	
 	if (card->ext_csd.rev >= 6)
-		card->wr_perf = 20;
+		card->wr_perf = 14;
 	else if (card->cid.manfid == 0x45) {
 		
 		if ((card->ext_csd.sectors == 31105024) && !strcmp(card->cid.prod_name, "SEM16G"))
@@ -928,10 +950,7 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 			card->wr_perf = 14;
 		
 		else if ((card->ext_csd.sectors == 61071360) && !strcmp(card->cid.prod_name, "SEM32G"))
-			card->wr_perf = 20;
-		
-		else if ((card->ext_csd.sectors == 122142720) && !strcmp(card->cid.prod_name, "SEM64G"))
-			card->wr_perf = 20;
+			card->wr_perf = 14;
 		else
 			card->wr_perf = 11;
 	} else if (card->cid.manfid == 0x15) {
@@ -943,6 +962,9 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 			card->wr_perf = 11;
 		
 		else if ((card->ext_csd.sectors == 30535680) && !strcmp(card->cid.prod_name, "MAG2GA"))
+			card->wr_perf = 14;
+		
+		else if ((card->ext_csd.sectors == 61071360) && (card->cid.fwrev == 0x7))
 			card->wr_perf = 14;
 		
 		else if (card->ext_csd.sectors == 122142720)
@@ -1096,7 +1118,6 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 					   mmc_hostname(card->host),
 					   1 << bus_width);
 
-do_retry:
 			err = mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
 					 EXT_CSD_BUS_WIDTH,
 					 ext_csd_bits[idx][0],
@@ -1104,23 +1125,10 @@ do_retry:
 			if (!err) {
 				mmc_set_bus_width(card->host, bus_width);
 
-				if (!(host->caps & MMC_CAP_BUS_WIDTH_TEST)) {
+				if (!(host->caps & MMC_CAP_BUS_WIDTH_TEST))
 					err = mmc_compare_ext_csds(card,
 						bus_width);
-					if (err) {
-						struct msmsdcc_host *sdcc_host = mmc_priv(card->host);
-						pr_err("%s: compare_ext_csd err %d, bus width %d, retry %d\n",
-							mmc_hostname(card->host), err, 1 << bus_width, retry);
-						msmsdcc_reset_and_restore(sdcc_host);
-						if (retry-- > 0)
-							goto do_retry;
-						
-						if ((board_mfg_mode() == 0) && (bus_width == MMC_BUS_WIDTH_8)) {
-							msleep(10000);
-							kernel_restart(NULL);
-						}
-					}
-				} else
+				else
 					err = mmc_bus_test(card, bus_width);
 				if (!err)
 					break;
@@ -1145,10 +1153,6 @@ do_retry:
 			pr_warning("%s: switch to bus width %d ddr %d "
 				"failed\n", mmc_hostname(card->host),
 				1 << bus_width, ddr);
-			
-			pr_err("%s: failed to set bus width, restart system\n", mmc_hostname(card->host));
-			msleep(10000);
-			kernel_restart(NULL);
 			goto free_card;
 		} else if (ddr) {
 			if (ddr == MMC_1_2V_DDR_MODE) {

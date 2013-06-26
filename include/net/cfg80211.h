@@ -232,15 +232,29 @@ enum station_info_flags {
 };
 
 enum rate_info_flags {
+#ifdef CONFIG_QUALCOMM_WLAN
+	RATE_INFO_FLAGS_MCS			= BIT(0),
+	RATE_INFO_FLAGS_VHT_MCS			= BIT(1),
+	RATE_INFO_FLAGS_40_MHZ_WIDTH		= BIT(2),
+	RATE_INFO_FLAGS_80_MHZ_WIDTH		= BIT(3),
+	RATE_INFO_FLAGS_80P80_MHZ_WIDTH		= BIT(4),
+	RATE_INFO_FLAGS_160_MHZ_WIDTH		= BIT(5),
+	RATE_INFO_FLAGS_SHORT_GI		= BIT(6),
+	RATE_INFO_FLAGS_60G			= BIT(7),
+#else
 	RATE_INFO_FLAGS_MCS		= 1<<0,
 	RATE_INFO_FLAGS_40_MHZ_WIDTH	= 1<<1,
 	RATE_INFO_FLAGS_SHORT_GI	= 1<<2,
+#endif
 };
 
 struct rate_info {
 	u8 flags;
 	u8 mcs;
 	u16 legacy;
+#ifdef CONFIG_QUALCOMM_WLAN
+	u8 nss;
+#endif
 };
 
 enum bss_param_flags {
@@ -1309,7 +1323,11 @@ int cfg80211_can_beacon_sec_chan(struct wiphy *wiphy,
 				 struct ieee80211_channel *chan,
 				 enum nl80211_channel_type channel_type);
 
+#ifdef CONFIG_QUALCOMM_WLAN
+u32 cfg80211_calculate_bitrate(struct rate_info *rate);
+#else
 u16 cfg80211_calculate_bitrate(struct rate_info *rate);
+#endif
 
 
 

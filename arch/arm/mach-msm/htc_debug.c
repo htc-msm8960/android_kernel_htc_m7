@@ -2,11 +2,25 @@
 #include <linux/kernel.h>
 #include <linux/proc_fs.h>
 #include <asm/uaccess.h>
+#include <linux/sched.h>
 
 
 #define PROCNAME "driver/hdf"
 #define FLAG_LEN 64
 static char htc_debug_flag[FLAG_LEN];
+
+#define TAG "[SEC] "
+#undef PDEBUG
+#define PDEBUG(fmt, args...) printk(KERN_INFO TAG "[K] %s(%i, %s): " fmt "\n", \
+		__func__, current->pid, current->comm, ## args)
+
+#undef PERR
+#define PERR(fmt, args...) printk(KERN_ERR TAG "[E] %s(%i, %s): " fmt "\n", \
+		__func__, current->pid, current->comm, ## args)
+
+#undef PINFO
+#define PINFO(fmt, args...) printk(KERN_INFO TAG "[I] %s(%i, %s): " fmt "\n", \
+		__func__, current->pid, current->comm, ## args)
 
 int htc_debug_read(char *page, char **start, off_t off, int count, int *eof, void *data)
 {
@@ -60,7 +74,7 @@ static int __init htc_debug_init(void)
 
 	entry = create_proc_entry(PROCNAME, 0660, NULL);
 	if (entry == NULL) {
-		printk(KERN_ERR "htc_debug: unable to create /proc entry\n");
+		PERR("unable to create /proc entry");
 		return -ENOMEM;
 	}
 

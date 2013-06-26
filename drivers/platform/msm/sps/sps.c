@@ -442,6 +442,79 @@ static void sps_debugfs_exit(void)
 }
 #endif
 
+int sps_get_bam_debug_info(u32 dev, u32 option)
+{
+	int res = 0;
+	struct sps_bam *bam;
+	u32 i;
+	u32 num_pipes = 0;
+	void *vir_addr;
+
+	if (dev == 0) {
+		SPS_ERR("sps:%s:device handle should not be 0.\n", __func__);
+		return SPS_ERROR;
+	}
+
+	mutex_lock(&sps->lock);
+	
+	bam = sps_h2bam(dev);
+	if (bam == NULL) {
+		pr_err("sps:Can't find any BAM with handle 0x%x.", dev);
+		mutex_unlock(&sps->lock);
+		return SPS_ERROR;
+	}
+	mutex_unlock(&sps->lock);
+
+	vir_addr = bam->base;
+	num_pipes = bam->props.num_pipes;
+
+	switch (option) {
+	case 1: 
+		print_bam_reg(vir_addr);
+		for (i = 0; i < num_pipes; i++)
+			print_bam_pipe_reg(vir_addr, i);
+		break;
+	case 2: 
+		print_bam_reg(vir_addr);
+		break;
+	case 3: 
+		print_bam_selected_reg(vir_addr);
+		break;
+	case 4: 
+		for (i = 0; i < num_pipes; i++)
+			print_bam_pipe_selected_reg(vir_addr, i);
+		break;
+	case 5: 
+		print_bam_pipe_selected_reg(vir_addr, 4);
+		print_bam_pipe_selected_reg(vir_addr, 5);
+		break;
+	case 6: 
+		for (i = 0; i < num_pipes; i++)
+			print_bam_pipe_desc_fifo(vir_addr, i);
+		break;
+	case 7: 
+		print_bam_pipe_desc_fifo(vir_addr, 4);
+		print_bam_pipe_desc_fifo(vir_addr, 5);
+		break;
+	case 8: 
+		for (i = 0; i < num_pipes; i++) {
+			print_bam_pipe_selected_reg(vir_addr, i);
+			print_bam_pipe_desc_fifo(vir_addr, i);
+		}
+		break;
+	case 9: 
+		print_bam_pipe_selected_reg(vir_addr, 4);
+		print_bam_pipe_desc_fifo(vir_addr, 4);
+		print_bam_pipe_selected_reg(vir_addr, 5);
+		print_bam_pipe_desc_fifo(vir_addr, 5);
+		break;
+	default:
+		pr_info("sps:no option is chosen yet.");
+	}
+
+	return res;
+}
+
 static int sps_device_init(void)
 {
 	int result;

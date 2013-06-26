@@ -33,6 +33,9 @@
 #define ACOUSTIC_GET_DMIC_INFO   	_IOW(ACOUSTIC_IOCTL_MAGIC, 46, unsigned)
 #define ACOUSTIC_UPDATE_BEATS_STATUS	_IOW(ACOUSTIC_IOCTL_MAGIC, 47, unsigned)
 #define ACOUSTIC_UPDATE_LISTEN_NOTIFICATION	_IOW(ACOUSTIC_IOCTL_MAGIC, 48, unsigned)
+#define ACOUSTIC_SET_CSD_CLIENT   	_IOW(ACOUSTIC_IOCTL_MAGIC, 49, unsigned)
+#define ACOUSTIC_GET_CSD_CLIENT   	_IOW(ACOUSTIC_IOCTL_MAGIC, 50, unsigned)
+
 #define ACOUSTIC_RAMDUMP		_IOW(ACOUSTIC_IOCTL_MAGIC, 99, unsigned)
 #define D(fmt, args...) printk(KERN_INFO "[AUD] htc-acoustic: "fmt, ##args)
 #define E(fmt, args...) printk(KERN_ERR "[AUD] htc-acoustic: "fmt, ##args)
@@ -42,11 +45,17 @@ static struct acoustic_ops default_acoustic_ops;
 static struct acoustic_ops *the_ops = &default_acoustic_ops;
 static struct switch_dev sdev_beats;
 static struct switch_dev sdev_listen_notification;
+static int is_csd_client_inited;
 
 void acoustic_register_ops(struct acoustic_ops *ops)
 {
         D("acoustic_register_ops \n");
 	the_ops = ops;
+}
+
+struct acoustic_ops *acoustic_get_ops(void)
+{
+	return the_ops;
 }
 
 static int acoustic_open(struct inode *inode, struct file *file)
@@ -166,6 +175,33 @@ acoustic_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			   BUG();
 		}
                 break;
+
+		case ACOUSTIC_GET_CSD_CLIENT: {
+			rc = is_csd_client_inited;
+
+			D("ACOUSTIC_GET_CSD_CLIENT: 0x%x\n", rc);
+			if(copy_to_user((void *)arg, &rc, sizeof(rc))) {
+				E("acoustic_ioctl: copy to user failed\n");
+				rc = -EINVAL;
+			}
+		}
+			break;
+		case ACOUSTIC_SET_CSD_CLIENT: {
+			int temp = 0;
+			if (copy_from_user(&temp, (void *)arg, sizeof(temp))) {
+				rc = -EFAULT;
+				break;
+			}
+			D("ACOUSTIC_SET_CSD_CLIENT: %d\n", temp);
+			if (temp < 0 ) {
+				temp = 0;
+			}else if(temp > 1){
+				temp = 1;
+			}
+			is_csd_client_inited = temp;
+			break;
+		}
+
 	default:
 		rc = -EINVAL;
 	}
@@ -224,6 +260,8 @@ static int __init acoustic_init(void)
 		pr_err("failed to register listen_notification switch device!\n");
 		return ret;
 	}
+
+	is_csd_client_inited = 0;
 	return 0;
 }
 

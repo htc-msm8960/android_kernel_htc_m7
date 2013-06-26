@@ -2305,11 +2305,19 @@ struct msm_dai_auxpcm_pdata auxpcm_pdata = {
 	.mode_16k = {
 		.mode = AFE_PCM_CFG_MODE_PCM,
 		.sync = AFE_PCM_CFG_SYNC_INT,
+#ifdef CONFIG_BT_WBS_BRCM
+		.frame = AFE_PCM_CFG_FRM_128BPF,
+#else
 		.frame = AFE_PCM_CFG_FRM_256BPF,
+#endif
 		.quant = AFE_PCM_CFG_QUANT_LINEAR_NOPAD,
 		.slot = 0,
 		.data = AFE_PCM_CFG_CDATAOE_MASTER,
+#ifdef CONFIG_BT_WBS_BRCM
+		.pcm_clk_rate = 2048000,
+#else
 		.pcm_clk_rate = 4096000,
+#endif
 	}
 };
 

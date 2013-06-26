@@ -311,6 +311,7 @@ struct usb_device {
 	enum usb_device_removable removable;
 	
 #ifdef HTC_PM_DBG
+	unsigned int enable_pm_debug:1;
 	unsigned auto_suspend_timer_set:1;
 	unsigned is_suspend:1;
 #endif
@@ -1000,6 +1001,8 @@ extern int usb_set_interface(struct usb_device *dev, int ifnum, int alternate);
 extern void usb_reset_endpoint(struct usb_device *dev, unsigned int epaddr);
 
 extern int usb_driver_set_configuration(struct usb_device *udev, int config);
+
+extern int usb_set_interrupt_latency(struct usb_device *udev, int latency);
 
 #define USB_CTRL_GET_TIMEOUT	5000
 #define USB_CTRL_SET_TIMEOUT	5000

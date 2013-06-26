@@ -146,7 +146,6 @@ config ARCH_MSM8960
 	select MSM_RUN_QUEUE_STATS
 	select ARM_HAS_SG_CHAIN
 	select MSM_KRAIT_WFE_FIXUP
-	select MSM_IOMMU_GPU_SYNC
 
 config ARCH_MSM8930
 	bool "MSM8930"
@@ -207,6 +206,7 @@ config ARCH_APQ8064
 	select ARCH_SUPPORTS_MSI
 	select ARM_HAS_SG_CHAIN
 	select MSM_KRAIT_WFE_FIXUP
+	select MSM_IOMMU_GPU_SYNC
 	select MSM_CPU_PWRCTL
 
 config ARCH_MSM8974
@@ -912,8 +912,8 @@ config PHYS_OFFSET
 	hex "Kernel Physical Start Address"
 	default "0x40800000" if ARCH_MSM9615
 	default "0x80600000" if ARCH_APQ8064
+	default "0x80600000" if ARCH_MSM8930
 	default "0x80400000" if ARCH_MSM8960
-	default "0x80400000" if ARCH_MSM8930
 	default "0x00000000" if ARCH_MSM8974
 	default "0x10000000" if ARCH_FSM9XXX
 	default "0x20200000" if ARCH_MSM9625
@@ -1073,6 +1073,10 @@ config HTC_ONMODE_CHARGING
 	default n
 	help
 		support on mode charing icon
+
+config HTC_FD_MONITOR
+	bool "fd operation monitor mechanism"
+	default n
 
 choice
 	prompt "Default Timer"
@@ -1372,6 +1376,12 @@ config MSM_SMD_DEBUG
 	help
 	  Support for debugging the SMD for communication
 	  between the ARM9 and ARM11
+
+config MSM_SEND_SIGNAL_DEBUG
+        bool "MSM send_signal debug support"
+        help
+          This option enables kernel debug log and dump_stack
+          if any processes send signal to assinged processes
 
 config MSM_SDIO_AL
 	depends on ((ARCH_MSM7X30 || MACH_MSM8X60_FUSN_FFA || MACH_TYPE_MSM8X60_FUSION) && HAS_WAKELOCK)
@@ -2106,7 +2116,7 @@ config MSM_LPASS_SSR_ENABLE
 
 config MSM_WCNSS_SSR_ENABLE
 	bool "MSM 8960 WCNSS subsystem restart enable"
-	depends on (ARCH_MSM8960 && MSM_SSR_INDEPENDENT)
+	depends on (ARCH_MSM8960)
 	help
 	 This option enables the WCNSS subsystem restart for MSM8960
 
@@ -2231,6 +2241,11 @@ config MSM_BUS_SCALING
 config MSM_BUS_RPM_MULTI_TIER_ENABLED
 	bool "RPM Multi-tiering Configuration"
 	depends on MSM_BUS_SCALING
+
+config MSM_BUS_RPM_VDDCX_SCALING_ENABLED
+	bool "RPM VDDCX scaling Configuration"
+	depends on MSM_BUS_SCALING
+	default n
 
 config MSM_WATCHDOG
 	bool "MSM Watchdog Support"
@@ -2646,6 +2661,18 @@ config MACH_M7_UL
 	select FB_MSM_MIPI_DSI
 	help
 	  Support for the HTC APQ8064 M7_UL.
+
+config MACH_M7_DXG
+        depends on ARCH_APQ8064
+        bool "APQ8064 M7_DXG"
+        help
+          Support for the HTC APQ8064 M7_DXG.
+
+config MACH_T6_DXG
+        depends on ARCH_APQ8064
+        bool "APQ8064 T6_DXG"
+        help
+          Support for the HTC APQ8064 T6_DXG.
 
 config QSC_MODEM
         default n

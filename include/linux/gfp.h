@@ -36,6 +36,7 @@ struct vm_area_struct;
 #define ___GFP_NO_KSWAPD	0x400000u
 #define ___GFP_OTHER_NODE	0x800000u
 #define ___GFP_WRITE		0x1000000u
+#define ___GFP_NO_COMPACT	0x2000000u
 
 #define __GFP_DMA	((__force gfp_t)___GFP_DMA)
 #define __GFP_HIGHMEM	((__force gfp_t)___GFP_HIGHMEM)
@@ -62,10 +63,11 @@ struct vm_area_struct;
 #define __GFP_NO_KSWAPD	((__force gfp_t)___GFP_NO_KSWAPD)
 #define __GFP_OTHER_NODE ((__force gfp_t)___GFP_OTHER_NODE) 
 #define __GFP_WRITE	((__force gfp_t)___GFP_WRITE)	
+#define __GFP_NO_COMPACT	((__force gfp_t)___GFP_NO_COMPACT)	
 
 #define __GFP_NOTRACK_FALSE_POSITIVE (__GFP_NOTRACK)
 
-#define __GFP_BITS_SHIFT 25	
+#define __GFP_BITS_SHIFT 26	
 #define __GFP_BITS_MASK ((__force gfp_t)((1 << __GFP_BITS_SHIFT) - 1))
 
 #define GFP_NOWAIT	(GFP_ATOMIC & ~__GFP_HIGH)

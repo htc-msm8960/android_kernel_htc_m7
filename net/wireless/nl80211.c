@@ -2462,14 +2462,64 @@ static bool nl80211_put_sta_rate(struct sk_buff *msg, struct rate_info *info,
 				 int attr)
 {
 	struct nlattr *rate;
+#ifdef CONFIG_QUALCOMM_WLAN
+	u32 bitrate;
+	u16 bitrate_compat;
+#else
 	u16 bitrate;
+#endif
 
 	rate = nla_nest_start(msg, attr);
 	if (!rate)
+#ifdef CONFIG_QUALCOMM_WLAN
+		return false;
+#else
 		goto nla_put_failure;
+#endif
 
 	
 	bitrate = cfg80211_calculate_bitrate(info);
+#ifdef CONFIG_QUALCOMM_WLAN
+	
+	bitrate_compat = bitrate < (1UL << 16) ? bitrate : 0;
+	if (bitrate > 0 &&
+	    nla_put_u32(msg, NL80211_RATE_INFO_BITRATE32, bitrate))
+		return false;
+	if (bitrate_compat > 0 &&
+	    nla_put_u16(msg, NL80211_RATE_INFO_BITRATE, bitrate_compat))
+		return false;
+
+	if (info->flags & RATE_INFO_FLAGS_MCS) {
+		if (nla_put_u8(msg, NL80211_RATE_INFO_MCS, info->mcs))
+			return false;
+		if (info->flags & RATE_INFO_FLAGS_40_MHZ_WIDTH &&
+		    nla_put_flag(msg, NL80211_RATE_INFO_40_MHZ_WIDTH))
+			return false;
+		if (info->flags & RATE_INFO_FLAGS_SHORT_GI &&
+		    nla_put_flag(msg, NL80211_RATE_INFO_SHORT_GI))
+			return false;
+	} else if (info->flags & RATE_INFO_FLAGS_VHT_MCS) {
+		if (nla_put_u8(msg, NL80211_RATE_INFO_VHT_MCS, info->mcs))
+			return false;
+		if (nla_put_u8(msg, NL80211_RATE_INFO_VHT_NSS, info->nss))
+			return false;
+		if (info->flags & RATE_INFO_FLAGS_40_MHZ_WIDTH &&
+		    nla_put_flag(msg, NL80211_RATE_INFO_40_MHZ_WIDTH))
+			return false;
+		if (info->flags & RATE_INFO_FLAGS_80_MHZ_WIDTH &&
+		    nla_put_flag(msg, NL80211_RATE_INFO_80_MHZ_WIDTH))
+			return false;
+		if (info->flags & RATE_INFO_FLAGS_80P80_MHZ_WIDTH &&
+		    nla_put_flag(msg, NL80211_RATE_INFO_80P80_MHZ_WIDTH))
+			return false;
+		if (info->flags & RATE_INFO_FLAGS_160_MHZ_WIDTH &&
+		    nla_put_flag(msg, NL80211_RATE_INFO_160_MHZ_WIDTH))
+			return false;
+		if (info->flags & RATE_INFO_FLAGS_SHORT_GI &&
+		    nla_put_flag(msg, NL80211_RATE_INFO_SHORT_GI))
+			return false;
+	}
+#else
 	if (bitrate > 0)
 		NLA_PUT_U16(msg, NL80211_RATE_INFO_BITRATE, bitrate);
 
@@ -2479,12 +2529,15 @@ static bool nl80211_put_sta_rate(struct sk_buff *msg, struct rate_info *info,
 		NLA_PUT_FLAG(msg, NL80211_RATE_INFO_40_MHZ_WIDTH);
 	if (info->flags & RATE_INFO_FLAGS_SHORT_GI)
 		NLA_PUT_FLAG(msg, NL80211_RATE_INFO_SHORT_GI);
+#endif
 
 	nla_nest_end(msg, rate);
 	return true;
-
+#ifdef CONFIG_QUALCOMM_WLAN
+#else
 nla_put_failure:
 	return false;
+#endif
 }
 
 static int nl80211_send_station(struct sk_buff *msg, u32 pid, u32 seq,

@@ -1022,7 +1022,7 @@ int mpu3050_open(struct mldl_cfg *mldl_cfg,
 	if (mldl_cfg->accel && mldl_cfg->accel->init) {
 		result = mldl_cfg->accel->init(accel_handle,
 					       mldl_cfg->accel,
-#ifdef CONFIG_M7_CIR_ALWAYS
+#ifdef CONFIG_CIR_ALWAYS_READY
 					       &mldl_cfg->pdata->accel,
 					       mldl_cfg->pdata->power_LPM);
 #else
@@ -1035,7 +1035,7 @@ int mpu3050_open(struct mldl_cfg *mldl_cfg,
 	if (mldl_cfg->compass && mldl_cfg->compass->init) {
 		result = mldl_cfg->compass->init(compass_handle,
 						 mldl_cfg->compass,
-#ifdef CONFIG_M7_CIR_ALWAYS
+#ifdef CONFIG_CIR_ALWAYS_READY
 						 &mldl_cfg->pdata->compass,
 						 NULL);
 #else
@@ -1050,7 +1050,7 @@ int mpu3050_open(struct mldl_cfg *mldl_cfg,
 	if (mldl_cfg->pressure && mldl_cfg->pressure->init) {
 		result = mldl_cfg->pressure->init(pressure_handle,
 						  mldl_cfg->pressure,
-#ifdef CONFIG_M7_CIR_ALWAYS
+#ifdef CONFIG_CIR_ALWAYS_READY
 						  &mldl_cfg->pdata->pressure,
 						  NULL);
 #else

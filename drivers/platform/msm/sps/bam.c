@@ -911,7 +911,6 @@ u32 bam_pipe_timer_get_count(void *base, u32 pipe)
 	return bam_read_reg(base, P_TIMER(pipe));
 }
 
-#ifdef CONFIG_DEBUG_FS
 void print_bam_reg(void *virt_addr)
 {
 	int i, n;
@@ -1153,4 +1152,3 @@ void print_bam_pipe_desc_fifo(void *virt_addr, u32 pipe_index)
 
 	SPS_INFO("--------------------  end of FIFO  --------------------\n");
 }
-#endif

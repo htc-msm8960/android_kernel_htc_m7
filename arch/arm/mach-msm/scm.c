@@ -17,6 +17,7 @@
 #include <linux/errno.h>
 #include <linux/err.h>
 #include <linux/init.h>
+#include <linux/sched.h>
 
 #include <asm/cacheflush.h>
 
@@ -38,6 +39,19 @@ module_param_named(simlock_code, simlock_code, charp, S_IRUGO | S_IWUSR | S_IWGR
 #define SCM_INTERRUPTED		1
 
 static DEFINE_MUTEX(scm_lock);
+
+#define TAG "[SEC] "
+#undef PDEBUG
+#define PDEBUG(fmt, args...) printk(KERN_INFO TAG "[K] %s(%i, %s): " fmt "\n", \
+		__func__, current->pid, current->comm, ##args)
+
+#undef PERR
+#define PERR(fmt, args...) printk(KERN_ERR TAG "[E] %s(%i, %s): " fmt "\n", \
+		__func__, current->pid, current->comm, ##args)
+
+#undef PINFO
+#define PINFO(fmt, ...) printk(KERN_INFO TAG "[I] %s(%i, %s): " fmt "\n", \
+		__func__, current->pid, current->comm, ##__VA_ARGS__)
 
 struct scm_command {
 	u32	len;
@@ -357,10 +371,10 @@ int secure_read_simlock_mask(void)
 	ret = scm_call(SCM_SVC_OEM, TZ_HTC_SVC_READ_SIMLOCK_MASK,
 			&dummy, sizeof(dummy), NULL, 0);
 
-	pr_info("TZ_HTC_SVC_READ_SIMLOCK_MASK ret = %d\n", ret);
+	PINFO("TZ_HTC_SVC_READ_SIMLOCK_MASK ret = %d", ret);
 	if (ret > 0)
 		ret &= 0x1F;
-	pr_info("TZ_HTC_SVC_READ_SIMLOCK_MASK modified ret = %d\n", ret);
+	PINFO("TZ_HTC_SVC_READ_SIMLOCK_MASK modified ret = %d", ret);
 
 	return ret;
 }
@@ -377,7 +391,7 @@ int secure_simlock_unlock(unsigned int unlock, unsigned char *code)
 	ret = scm_call(SCM_SVC_OEM, TZ_HTC_SVC_SIMLOCK_UNLOCK,
 			&req, sizeof(req), NULL, 0);
 
-	pr_info("TZ_HTC_SVC_SIMLOCK_UNLOCK ret = %d\n", ret);
+	PINFO("TZ_HTC_SVC_SIMLOCK_UNLOCK ret = %d", ret);
 	return ret;
 }
 EXPORT_SYMBOL(secure_simlock_unlock);
@@ -390,10 +404,10 @@ int secure_get_security_level(void)
 	ret = scm_call(SCM_SVC_OEM, TZ_HTC_SVC_GET_SECURITY_LEVEL,
 			&dummy, sizeof(dummy), NULL, 0);
 
-	pr_info("TZ_HTC_SVC_GET_SECURITY_LEVEL ret = %d\n", ret);
+	PINFO("TZ_HTC_SVC_GET_SECURITY_LEVEL ret = %d", ret);
 	if (ret > 0)
 		ret &= 0x0F;
-	pr_info("TZ_HTC_SVC_GET_SECURITY_LEVEL modified ret = %d\n", ret);
+	PINFO("TZ_HTC_SVC_GET_SECURITY_LEVEL modified ret = %d", ret);
 
 	return ret;
 }
@@ -407,7 +421,7 @@ int secure_memprot(void)
 	ret = scm_call(SCM_SVC_OEM, TZ_HTC_SVC_MEMPROT,
 			&dummy, sizeof(dummy), NULL, 0);
 
-	pr_info("TZ_HTC_SVC_MEMPROT ret = %d\n", ret);
+	PINFO("TZ_HTC_SVC_MEMPROT ret = %d", ret);
 	return ret;
 }
 EXPORT_SYMBOL(secure_memprot);
@@ -424,7 +438,7 @@ int secure_log_operation(unsigned int address, unsigned int size,
 	req.revert = revert;
 	ret = scm_call(SCM_SVC_OEM, TZ_HTC_SVC_LOG_OPERATOR,
 			&req, sizeof(req), NULL, 0);
-	pr_info("TZ_HTC_SVC_LOG_OPERATOR ret = %d\n", ret);
+	PINFO("TZ_HTC_SVC_LOG_OPERATOR ret = %d", ret);
 	return ret;
 }
 EXPORT_SYMBOL(secure_log_operation);
@@ -442,7 +456,7 @@ int secure_access_item(unsigned int is_write, unsigned int id, unsigned int buf_
 	ret = scm_call(SCM_SVC_OEM, TZ_HTC_SVC_ACCESS_ITEM,
 			&req, sizeof(req), NULL, 0);
 
-	pr_info("TZ_HTC_SVC_ACCESS_ITEM id %d ret = %d\n", id, ret);
+	PINFO("TZ_HTC_SVC_ACCESS_ITEM id %d ret = %d", id, ret);
 	return ret;
 }
 
@@ -518,9 +532,9 @@ static int lock_set_func(const char *val, struct kernel_param *kp)
 {
 	int ret;
 
-	printk(KERN_INFO "%s started(%d)...\n", __func__, strlen(val));
+	PINFO("started(%d)...", strlen(val));
 	ret = param_set_int(val, kp);
-	printk(KERN_INFO "%s finished(%d): %d...\n", __func__, ret, simlock_mask);
+	PINFO("finished(%d): %d...", ret, simlock_mask);
 
 	return ret;
 }
@@ -531,7 +545,7 @@ static int lock_get_func(char *val, struct kernel_param *kp)
 
 	simlock_mask = secure_read_simlock_mask();
 	ret = param_get_int(val, kp);
-	printk(KERN_INFO "%s: %d, %d(%x)...\n", __func__, ret, simlock_mask, simlock_mask);
+	PINFO("%d, %d(%x)...", ret, simlock_mask, simlock_mask);
 
 	return ret;
 }
@@ -541,14 +555,14 @@ static int unlock_set_func(const char *val, struct kernel_param *kp)
 	int ret, ret2;
 	static unsigned char scode[17];
 
-	printk(KERN_INFO "%s started(%d)...\n", __func__, strlen(val));
+	PINFO("started(%d)...", strlen(val));
 	ret = param_set_int(val, kp);
 	ret2 = strlen(simlock_code);
 	strcpy(scode, simlock_code);
 	scode[ret2 - 1] = 0;
-	printk(KERN_INFO "%s finished(%d): %d, '%s'...\n", __func__, ret, unlock_mask, scode);
+	PINFO("finished(%d): %d, '%s'...", ret, unlock_mask, scode);
 	ret2 = secure_simlock_unlock(unlock_mask, scode);
-	printk(KERN_INFO "secure_simlock_unlock ret %d...\n", ret2);
+	PINFO("secure_simlock_unlock ret %d...", ret2);
 
 	return ret;
 }
@@ -558,7 +572,7 @@ static int unlock_get_func(char *val, struct kernel_param *kp)
 	int ret;
 
 	ret = param_get_int(val, kp);
-	printk(KERN_INFO "%s: %d, %d(%x)...\n", __func__, ret, unlock_mask, unlock_mask);
+	PINFO("%d, %d(%x)...", ret, unlock_mask, unlock_mask);
 
 	return ret;
 }
@@ -567,9 +581,9 @@ static int level_set_func(const char *val, struct kernel_param *kp)
 {
 	int ret;
 
-	printk(KERN_INFO "%s started(%d)...\n", __func__, strlen(val));
+	PINFO("started(%d)...", strlen(val));
 	ret = param_set_int(val, kp);
-	printk(KERN_INFO "%s finished(%d): %d...\n", __func__, ret, security_level);
+	PINFO("finished(%d): %d...", ret, security_level);
 
 	return ret;
 }
@@ -580,7 +594,7 @@ static int level_get_func(char *val, struct kernel_param *kp)
 
 	security_level = secure_get_security_level();
 	ret = param_get_int(val, kp);
-	printk(KERN_INFO "%s: %d, %d(%x)...\n", __func__, ret, security_level, security_level);
+	PINFO("%d, %d(%x)...", ret, security_level, security_level);
 
 	return ret;
 }

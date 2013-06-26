@@ -423,6 +423,12 @@ config INPUT_GPIO
 	help
 	  Say Y here if you want to support gpio based keys, wheels etc...
 
+config PWRKEY_STATUS_API
+	bool "PWRKEY API"
+	depends on INPUT_GPIO
+	help
+	  Power key status API for others to get power key pressed or not within 1 second
+
 config INPUT_ISA1200_FF_MEMLESS
 	tristate "ISA1200 haptic ff-memless support"
 	depends on I2C

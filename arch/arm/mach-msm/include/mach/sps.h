@@ -493,6 +493,8 @@ int sps_setup_bam2bam_fifo(struct sps_mem_buffer *mem_buffer,
 
 int sps_get_unused_desc_num(struct sps_pipe *h, u32 *desc_num);
 
+int sps_get_bam_debug_info(u32 dev, u32 option);
+
 #else
 static inline int sps_register_bam_device(const struct sps_bam_props
 			*bam_props, u32 *dev_handle)

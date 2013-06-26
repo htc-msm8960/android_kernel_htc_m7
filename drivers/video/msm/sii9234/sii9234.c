@@ -40,6 +40,12 @@
 #include "TPI.h"
 #include "mhl_defs.h"
 
+#define MHL_RCP_KEYEVENT
+#define MHL_ISR_TIMEOUT 5
+
+#define MHL_DEBUGFS_TIMEOUT 10
+#define MHL_DEBUGFS_AMP 5
+
 #define SII9234_I2C_RETRY_COUNT 2
 
 #define sii_gpio_set_value(pin, val)	\
@@ -104,19 +110,33 @@ static bool g_bPollDetect = false;
 static bool g_bLowPowerModeOn = false;
 
 static struct dentry *dbg_entry_dir, *dbg_entry_a3, *dbg_entry_a6, *dbg_entry_dbg_on;
-static struct dentry *dbg_entry_con_test_timeout, *dbg_entry_con_test_on;
+static struct dentry *dbg_entry_con_test_timeout, *dbg_entry_con_test_on,
+	*dbg_entry_con_test_random;
 
 u8 dbg_drv_str_a3 = 0xEB, dbg_drv_str_a6 = 0x0C, dbg_drv_str_on = 0;
-u8 dbg_con_test_timeout = 10, dbg_con_test_on = 0;
+static u8 dbg_con_test_timeout = MHL_DEBUGFS_TIMEOUT, dbg_con_test_on = 0,
+	dbg_con_test_random = 1;
 void hdmi_set_switch_state(bool enable);
-
-#define MHL_RCP_KEYEVENT
-#define MHL_ISR_TIMEOUT 5
 
 #ifdef MHL_RCP_KEYEVENT
 struct input_dev *input_dev;
 #endif
 static struct platform_device *mhl_dev; 
+
+static int dbg_con_get_timeout(void)
+{
+	int ret = dbg_con_test_timeout;
+
+	if (dbg_con_test_random) {
+		int t = MHL_DEBUGFS_TIMEOUT;
+		int s = jiffies%MHL_DEBUGFS_AMP;
+		ret = jiffies%2?t+s:t-s;
+	}
+
+	PR_DISP_INFO("%s: timeout = %d\n", __func__, ret);
+
+	return ret;
+}
 
 #ifdef CONFIG_CABLE_DETECT_ACCESSORY
 static DEFINE_MUTEX(mhl_notify_sem);
@@ -155,7 +175,7 @@ void update_mhl_status(bool isMHL, enum usb_connect_type statMHL)
 	if (!pInfo)
 		return;
 
-	PR_DISP_DEBUG("%s: -+-+-+-+- MHL is %sconnected, status = %d -+-+-+-+-\n",
+	PR_DISP_INFO("%s: -+-+-+-+- MHL is %sconnected, status = %d -+-+-+-+-\n",
 		__func__, isMHL?"":"NOT ", statMHL);
 	pInfo->isMHL = isMHL;
 	pInfo->statMHL = statMHL;
@@ -205,6 +225,7 @@ static void send_mhl_connect_notify(struct work_struct *w)
 				mhl_notifier->func(pInfo->isMHL, false);
 #endif
 		}
+	hdmi_set_switch_state(pInfo->isMHL);
 	mutex_unlock(&mhl_notify_sem);
 }
 
@@ -515,7 +536,7 @@ void sii9234_mhl_device_wakeup(void)
 	if(!dbg_con_test_on)
 		queue_delayed_work(pInfo->wq, &pInfo->irq_timeout_work, HZ * MHL_ISR_TIMEOUT);
 	else
-		queue_delayed_work(pInfo->wq, &pInfo->irq_timeout_work, HZ * dbg_con_test_timeout);
+		queue_delayed_work(pInfo->wq, &pInfo->irq_timeout_work, HZ * dbg_con_get_timeout());
 
 	mutex_unlock(&mhl_early_suspend_sem);
 }
@@ -524,6 +545,7 @@ static void init_delay_handler(struct work_struct *w)
 {
 	PR_DISP_INFO("init_delay_handler()\n");
 
+	TPI_Init();
 	update_mhl_status(false, CONNECT_TYPE_UNKNOWN);
 }
 
@@ -595,7 +617,10 @@ static void sii9234_early_suspend(struct early_suspend *h)
 	pInfo = container_of(h, T_MHL_SII9234_INFO, early_suspend);
 	if (!pInfo)
 		return;
-	PR_DISP_DEBUG("%s(isMHL=%d)\n", __func__, pInfo->isMHL);
+	PR_DISP_INFO("%s(isMHL=%d)\n", __func__, pInfo->isMHL);
+
+	if (pInfo->isMHL && !tpi_get_hpd_state())
+		sii9234_disableIRQ();
 
 	mutex_lock(&mhl_early_suspend_sem);
 	
@@ -613,7 +638,6 @@ static void sii9234_early_suspend(struct early_suspend *h)
 #ifdef CONFIG_INTERNAL_CHARGING_SUPPORT
 			cancel_delayed_work(&pInfo->detect_charger_work);
 #endif
-			sii9234_disableIRQ();
 			
 			if (pInfo->mhl_1v2_power)
 				pInfo->mhl_1v2_power(0);
@@ -628,7 +652,6 @@ static void sii9234_early_suspend(struct early_suspend *h)
 		
 		if (cable_get_accessory_type() != DOCK_STATE_MHL )
 			disable_interswitch = true;
-		TPI_Init();
 		if (!g_bLowPowerModeOn) {
 			g_bLowPowerModeOn = true;
 			if (pInfo->mhl_lpm_power)
@@ -645,7 +668,7 @@ static void sii9234_late_resume(struct early_suspend *h)
 	pInfo = container_of(h, T_MHL_SII9234_INFO, early_suspend);
 	if (!pInfo)
 		return;
-	PR_DISP_DEBUG("sii9234_late_resume()\n");
+	PR_DISP_INFO("sii9234_late_resume()\n");
 
 	mutex_lock(&mhl_early_suspend_sem);
 	queue_delayed_work(pInfo->wq, &pInfo->mhl_on_delay_work, HZ);
@@ -668,7 +691,6 @@ static void mhl_on_delay_handler(struct work_struct *w)
 		return;
 
 	mutex_lock(&mhl_early_suspend_sem);
-
 	if (IsMHLConnection()) {
 		
 		PR_DISP_DEBUG("MHL has connected. No SimulateCableOut!!!\n");
@@ -739,9 +761,9 @@ static const struct file_operations mhl_con_event_fops = {
 
 static int sii_debugfs_init(void)
 {
-	dbg_entry_dir = debugfs_create_dir("mhl_debugfs", NULL);
+	dbg_entry_dir = debugfs_create_dir("mhl", NULL);
 	if (!dbg_entry_dir) {
-		PR_DISP_DEBUG("Fail to create debugfs dir: mhl_debugfs\n");
+		PR_DISP_DEBUG("Fail to create debugfs dir: mhl\n");
 		return -1;
 	}
 	dbg_entry_a3 = debugfs_create_u8("strength_a3", 0644, dbg_entry_dir, &dbg_drv_str_a3);
@@ -761,6 +783,9 @@ static int sii_debugfs_init(void)
 	dbg_entry_con_test_on = debugfs_create_u8("con_test_on", 0644, dbg_entry_dir, &dbg_con_test_on);
 	if (!dbg_entry_dbg_on)
 		PR_DISP_DEBUG("Fail to create debugfs: con_test_on\n");
+	dbg_entry_con_test_random = debugfs_create_u8("con_test_random", 0644, dbg_entry_dir, &dbg_con_test_random);
+        if (!dbg_entry_dbg_on)
+                PR_DISP_DEBUG("Fail to create debugfs: con_test_random\n");
 
 	
 	if (debugfs_create_file("con_event", 0644, dbg_entry_dir, 0, &mhl_con_event_fops)

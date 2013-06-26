@@ -18,10 +18,12 @@ unsigned int probe_seq_tx;
 static struct proc_dir_entry *proc_mtd;
 static char *ProcBuffer;
 static int Ring=0, WritingLength;
+static int enable_log = 0;
 static DEFINE_MUTEX(probe_data_mutexlock);
 
 extern void (*record_probe_data_fp)(struct sock *sk, int type, size_t size, unsigned long long t_pre);
 void record_probe_data(struct sock *sk, int type, size_t size, unsigned long long t_pre);
+void set_htc_monitor_resume_state(void);
 
 static void* 	log_seq_start(struct seq_file *sfile, loff_t *pos);
 static void* 	log_seq_next(struct seq_file *sfile, void *v, loff_t *pos);
@@ -75,6 +77,8 @@ static ssize_t htc_monitor_param_set(struct device *dev,
 			htc_monitor_param = 1;
 			pr_info(" htc_monitor_param: %d\n",  htc_monitor_param);
 			record_probe_data_fp = record_probe_data;
+			
+			
 		}
 	}
 
@@ -174,6 +178,11 @@ static int log_proc_open(struct inode *inode, struct file *file)
 	if( htc_monitor_param == 0 )
 		return -EPERM;
 	return seq_open(file, &log_seq_ops);
+}
+
+void set_htc_monitor_resume_state(void)
+{
+	enable_log = 1;
 }
 
 void record_probe_data(struct sock *sk, int type, size_t size, unsigned long long t_pre)
@@ -282,6 +291,12 @@ void record_probe_data(struct sock *sk, int type, size_t size, unsigned long lon
 		memcpy(&ProcBuffer[WritingLength], Tmp1, Tmp1_len);
 		WritingLength += Tmp1_len;
 	}
+	
+	if ( enable_log ) {
+		enable_log = 0;
+		pr_info("[htc_monitor]%s", Tmp1);
+	}
+	
 	mutex_unlock(&probe_data_mutexlock);
 	return;
 }

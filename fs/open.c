@@ -33,6 +33,9 @@
 
 #include "internal.h"
 
+#ifdef CONFIG_HTC_FD_MONITOR
+extern int in_fd_list(const int fd, const int mid);
+#endif
 int do_truncate(struct dentry *dentry, loff_t length, unsigned int time_attrs,
 	struct file *filp)
 {
@@ -945,7 +948,6 @@ SYSCALL_DEFINE1(close, unsigned int, fd)
 	struct files_struct *files = current->files;
 	struct fdtable *fdt;
 	int retval;
-
 	spin_lock(&files->file_lock);
 	fdt = files_fdtable(files);
 	if (fd >= fdt->max_fds)
@@ -953,6 +955,15 @@ SYSCALL_DEFINE1(close, unsigned int, fd)
 	filp = fdt->fd[fd];
 	if (!filp)
 		goto out_unlock;
+#ifdef CONFIG_HTC_FD_MONITOR
+	if (in_fd_list(fd, 0) == 1) {
+		printk("fd error: %s(%d) tries to close fd=%d illegally\n", current->comm, current->pid, fd);
+		force_sig(SIGABRT, current);
+		spin_unlock(&files->file_lock);
+		force_sig(SIGABRT, current);
+		return 0xBADFD;
+	}
+#endif
 	rcu_assign_pointer(fdt->fd[fd], NULL);
 	__clear_close_on_exec(fd, fdt);
 	__put_unused_fd(files, fd);

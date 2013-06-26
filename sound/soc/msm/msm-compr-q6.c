@@ -362,6 +362,15 @@ static int msm_compr_playback_prepare(struct snd_pcm_substream *substream)
 		if (ret < 0)
 			pr_info("[%p] %s: CMD Format block failed\n", prtd, __func__);
 		break;
+	case SND_AUDIOCODEC_PCM:
+		pr_debug("[%p] %s: SND_AUDIOCODEC_PCM, sampleRate: %d, channel: %d\n",
+				prtd, __func__, prtd->samp_rate, prtd->channel_mode);
+		ret = q6asm_media_format_block_pcm(prtd->audio_client, prtd->samp_rate,
+				prtd->channel_mode);
+		if (ret < 0)
+			pr_info("[%p] %s: CMD Format block failed\n", prtd, __func__);
+		break;
+
 	case SND_AUDIOCODEC_AAC:
 		pr_debug("[%p] %s: SND_AUDIOCODEC_AAC\n", prtd, __func__);
 		memset(&aac_cfg, 0x0, sizeof(struct asm_aac_cfg));
@@ -558,7 +567,7 @@ static void populate_codec_list(struct compr_audio *compr,
 {
 	pr_debug("%s\n", __func__);
 	
-	compr->info.compr_cap.num_codecs = 8;
+	compr->info.compr_cap.num_codecs = 11;
 	compr->info.compr_cap.min_fragment_size = runtime->hw.period_bytes_min;
 	compr->info.compr_cap.max_fragment_size = runtime->hw.period_bytes_max;
 	compr->info.compr_cap.min_fragments = runtime->hw.periods_min;
@@ -571,6 +580,9 @@ static void populate_codec_list(struct compr_audio *compr,
 	compr->info.compr_cap.codecs[5] = SND_AUDIOCODEC_DTS;
 	compr->info.compr_cap.codecs[6] = SND_AUDIOCODEC_DTS_LBR;
 	compr->info.compr_cap.codecs[7] = SND_AUDIOCODEC_DTS_PASS_THROUGH;
+	compr->info.compr_cap.codecs[8] = SND_AUDIOCODEC_AMRWB;
+	compr->info.compr_cap.codecs[9] = SND_AUDIOCODEC_AMRWBPLUS;
+	compr->info.compr_cap.codecs[10] = SND_AUDIOCODEC_PCM;
 	
 }
 
@@ -826,7 +838,11 @@ static int msm_compr_hw_params(struct snd_pcm_substream *substream,
 		.rampingcurve = SOFT_PAUSE_CURVE_LINEAR,
 	};
 	struct asm_softvolume_params softvol = {
-		.period = 250,
+#ifdef CONFIG_MSM8960_ONLY
+		.period = 30,
+#else
+		.period = 50,
+#endif
 		.step = SOFT_VOLUME_STEP,
 		.rampingcurve = SOFT_VOLUME_CURVE_LINEAR,
 	};
@@ -894,7 +910,7 @@ static int msm_compr_hw_params(struct snd_pcm_substream *substream,
 
 	if (str_name != NULL && !strncmp(str_name,"COMPR2", 6)) {
 		if (compressed2_audio.prtd && compressed2_audio.prtd->audio_client) {
-			pr_debug("[%p] %s compressed2 set ramping\n", prtd, __func__);
+			pr_debug("[%p] %s compressed2 set ramping for %d ms\n", prtd, __func__,softvol.period);
 			ret = compressed2_set_volume(compressed2_audio.volume);
 			if (ret < 0)
 				pr_err("[%p] %s : Set Volume2 failed : %d", prtd, __func__, ret);
@@ -912,7 +928,7 @@ static int msm_compr_hw_params(struct snd_pcm_substream *substream,
 		}
 	} else {
 		if (compressed_audio.prtd && compressed_audio.prtd->audio_client) {
-			pr_debug("[%p] %s compressed set ramping\n", prtd, __func__);
+			pr_debug("[%p] %s compressed set ramping for %d ms\n", prtd, __func__,softvol.period);
 			ret = compressed_set_volume(compressed_audio.volume);
 			if (ret < 0)
 				pr_err("[%p] %s : Set Volume failed : %d", prtd,__func__, ret);
@@ -1033,6 +1049,11 @@ static int msm_compr_ioctl(struct snd_pcm_substream *substream,
 			
 			pr_debug("[%p] SND_AUDIOCODEC_MP3\n", prtd);
 			compr->codec = FORMAT_MP3;
+			break;
+		case SND_AUDIOCODEC_PCM:
+			
+			pr_debug("[%p] SND_AUDIOCODEC_PCM\n", prtd);
+			compr->codec = FORMAT_LINEAR_PCM;
 			break;
 		case SND_AUDIOCODEC_AAC:
 			pr_debug("[%p] SND_AUDIOCODEC_AAC\n", prtd);

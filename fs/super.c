@@ -587,9 +587,11 @@ cancel_readonly:
 	return retval;
 }
 
+char devlog_part[64] = {0,};
 static void do_emergency_remount(struct work_struct *work)
 {
 	struct super_block *sb, *p = NULL;
+	char b[BDEVNAME_SIZE];
 
 	atomic_set(&vfs_emergency_remount, 1);
 	spin_lock(&sb_lock);
@@ -601,7 +603,9 @@ static void do_emergency_remount(struct work_struct *work)
 		down_write(&sb->s_umount);
 		if (sb->s_root && sb->s_bdev && (sb->s_flags & MS_BORN) &&
 		    !(sb->s_flags & MS_RDONLY)) {
-			do_remount_sb(sb, MS_RDONLY, NULL, 1);
+			
+			if (strcmp(bdevname(sb->s_bdev, b), devlog_part))
+				do_remount_sb(sb, MS_RDONLY, NULL, 1);
 		}
 		up_write(&sb->s_umount);
 		spin_lock(&sb_lock);

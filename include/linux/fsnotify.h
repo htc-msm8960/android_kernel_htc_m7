@@ -163,8 +163,23 @@ static inline void fsnotify_access(struct file *file)
 static inline void fsnotify_modify(struct file *file)
 {
 	struct path *path = &file->f_path;
-	struct inode *inode = path->dentry->d_inode;
+	struct inode *inode = NULL;
 	__u32 mask = FS_MODIFY;
+
+	if (path && path->dentry && path->dentry->d_inode) {
+		inode = path->dentry->d_inode;
+	} else {
+		if (path && path->dentry && &path->dentry->d_name && path->dentry->d_name.name)
+			pr_info("%s: skip %s fsnotify due to missing inode\n", __func__, (char *) path->dentry->d_name.name);
+		else
+			pr_info("%s: skip (null) fsnotify due to missing inode\n", __func__);
+
+		if (file->f_mode & FMODE_NONOTIFY)
+			pr_info("%s: skip fsnotify due to FMODE_NONOTIFY\n", __func__);
+
+		dump_stack();
+		return;
+	}
 
 	if (S_ISDIR(inode->i_mode))
 		mask |= FS_ISDIR;

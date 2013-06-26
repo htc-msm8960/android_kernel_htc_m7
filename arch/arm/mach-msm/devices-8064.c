@@ -220,11 +220,7 @@ static struct resource resources_uart_gsbi2[] = {
 
 struct platform_device apq8064_device_uart_gsbi2 = {
 	.name	= "msm_serial_hsl",
-#ifdef CONFIG_SERIAL_CIR
-	.id	= 4,
-#else
 	.id	= 3,
-#endif
 	.num_resources	= ARRAY_SIZE(resources_uart_gsbi2),
 	.resource	= resources_uart_gsbi2,
 };
@@ -294,7 +290,7 @@ struct platform_device apq8064_device_uart_gsbi3 = {
 	.id	= 2,
 #elif defined CONFIG_SERIAL_CIR
 	.name	= "msm_serial_cir",
-	.id	= 3,
+	.id	= 2,
 #else
 	.name	= "msm_serial_hsl",
 	.id	= 0,

@@ -319,6 +319,7 @@ struct mmc_card {
 	struct mmc_part	part[MMC_NUM_PHY_PARTITION]; 
 	unsigned int    nr_parts;
 	unsigned int		wr_perf; 
+	s8			speed_class; 
 
 	struct mmc_wr_pack_stats wr_pack_stats; 
 };

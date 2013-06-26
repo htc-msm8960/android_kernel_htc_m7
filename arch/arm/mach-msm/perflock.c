@@ -66,7 +66,7 @@ static struct kernel_param_ops param_ops_str = {
 module_param_cb(debug_mask, &param_ops_str, &debug_mask, S_IWUSR | S_IRUGO);
 
 #ifdef CONFIG_HTC_PNPMGR
-static int legacy_mode = 1;
+static int legacy_mode = 0;
 module_param_cb(legacy_mode, &param_ops_str, &legacy_mode, S_IWUSR | S_IRUGO);
 extern struct kobject *cpufreq_kobj;
 #endif

@@ -298,6 +298,22 @@ int htc_battery_charger_disable()
 	return rc;
 }
 
+
+int htc_battery_set_max_input_current(int target_ma)
+{
+	int rc = 0;
+
+	if (!battery_core_info.func.func_set_max_input_current) {
+		BATT_ERR("No max input current function!");
+		return -ENOENT;
+	}
+	rc = battery_core_info.func.func_set_max_input_current(target_ma);
+	if (rc < 0)
+		BATT_ERR("max input current control failed!");
+
+	return rc;
+}
+
 int htc_battery_pwrsrc_disable()
 {
 	int rc = 0;
@@ -437,6 +453,57 @@ static ssize_t htc_battery_set_navigation(struct device *dev,
 
 	return count;
 }
+static ssize_t htc_battery_set_context_event(struct device *dev,
+				struct device_attribute *attr,
+				const char *buf, size_t count)
+{
+	unsigned long event = 0;
+	int rc = 0;
+
+	rc = strict_strtoul(buf, 10, &event);
+	if (rc)
+		return rc;
+
+	BATT_LOG("Set context event = %lu", event);
+
+	if (!battery_core_info.func.func_context_event_handler) {
+		BATT_ERR("No context_event_notify function!");
+		return -ENOENT;
+	}
+
+	battery_core_info.func.func_context_event_handler(event);
+
+	return count;
+}
+
+static ssize_t htc_battery_set_disable_limit_chg(struct device *dev,
+				struct device_attribute *attr,
+				const char *buf, size_t count)
+{
+	int rc = 0;
+	unsigned long disable_limit_chg = 0;
+
+	rc = strict_strtoul(buf, 10, &disable_limit_chg);
+	if (rc)
+		return rc;
+
+	BATT_LOG("Set context disable_limit_chg = %lu", disable_limit_chg);
+
+	if((disable_limit_chg != 0) && (disable_limit_chg != 1))
+		return -EINVAL;
+
+	if (!battery_core_info.func.func_context_event_handler) {
+		BATT_ERR("No context_event_notify function!");
+		return -ENOENT;
+	}
+
+	if (disable_limit_chg)
+		battery_core_info.func.func_context_event_handler(EVENT_DAYDREAM_START);
+	else
+		battery_core_info.func.func_context_event_handler(EVENT_DAYDREAM_STOP);
+
+	return count;
+}
 
 static struct device_attribute htc_battery_attrs[] = {
 	HTC_BATTERY_ATTR(batt_id),
@@ -470,6 +537,10 @@ static struct device_attribute htc_set_delta_attrs[] = {
 		htc_battery_set_network_search),
 	__ATTR(navigation, S_IWUSR | S_IWGRP, NULL,
 		htc_battery_set_navigation),
+	__ATTR(context_event, S_IWUSR | S_IWGRP, NULL,
+		htc_battery_set_context_event),
+	__ATTR(disable_limit_chg, S_IWUSR | S_IWGRP, NULL,
+		htc_battery_set_disable_limit_chg),
 };
 
 static struct device_attribute htc_battery_rt_attrs[] = {
@@ -542,7 +613,14 @@ static int htc_battery_get_property(struct power_supply *psy,
 		break;
 	case POWER_SUPPLY_PROP_CAPACITY:
 		mutex_lock(&battery_core_info.info_lock);
+#ifdef CONFIG_HTC_BATT8x60
+		if (battery_core_info.htc_charge_full == 0)
+			val->intval = battery_core_info.rep.level;
+		else
+			val->intval = 100;
+#else
 		val->intval = battery_core_info.rep.level;
+#endif
 		mutex_unlock(&battery_core_info.info_lock);
 		break;
 	case POWER_SUPPLY_PROP_OVERLOAD:
@@ -784,8 +862,17 @@ int htc_battery_core_update_changed(void)
 		if (CHARGER_USB == battery_core_info.rep.charging_source ||
 			CHARGER_USB == new_batt_info_rep.charging_source)
 			is_send_usb_uevent = 1;
+		if (CHARGER_DETECTING == battery_core_info.rep.charging_source ||
+			CHARGER_DETECTING == new_batt_info_rep.charging_source)
+			is_send_usb_uevent = 1;
+		if (CHARGER_UNKNOWN_USB == battery_core_info.rep.charging_source ||
+			CHARGER_UNKNOWN_USB == new_batt_info_rep.charging_source)
+			is_send_usb_uevent = 1;
 		if (CHARGER_AC == battery_core_info.rep.charging_source ||
 			CHARGER_AC == new_batt_info_rep.charging_source)
+			is_send_ac_uevent = 1;
+		if (CHARGER_9V_AC == battery_core_info.rep.charging_source ||
+			CHARGER_9V_AC == new_batt_info_rep.charging_source)
 			is_send_ac_uevent = 1;
 		if (CHARGER_MHL_AC == battery_core_info.rep.charging_source ||
 			CHARGER_MHL_AC == new_batt_info_rep.charging_source)
@@ -809,6 +896,14 @@ int htc_battery_core_update_changed(void)
 			battery_over_loading++;
 		else
 			battery_over_loading = 0;
+	}
+
+	
+	if (battery_core_info.func.func_notify_pnpmgr_charging_enabled) {
+		if (battery_core_info.rep.charging_enabled !=
+				new_batt_info_rep.charging_enabled)
+			battery_core_info.func.func_notify_pnpmgr_charging_enabled(
+										new_batt_info_rep.charging_enabled);
 	}
 
 	memcpy(&battery_core_info.rep, &new_batt_info_rep, sizeof(struct battery_info_reply));
@@ -858,9 +953,15 @@ int htc_battery_core_update_changed(void)
 	if (battery_core_info.rep.charging_source == CHARGER_BATTERY)
 		battery_core_info.htc_charge_full = 0;
 	else {
+#ifdef CONFIG_HTC_BATT8x60
+		if (battery_core_info.htc_charge_full &&
+				(battery_core_info.rep.full_level == 100))
+			battery_core_info.htc_charge_full = 1;
+#else
 		if (battery_core_info.htc_charge_full &&
 				(battery_core_info.rep.level == 100))
 			battery_core_info.htc_charge_full = 1;
+#endif
 		else {
 			if (battery_core_info.rep.level == 100)
 				battery_core_info.htc_charge_full = 1;
@@ -952,13 +1053,18 @@ int htc_battery_core_register(struct device *dev,
 	if (htc_battery->func_charger_control)
 		battery_core_info.func.func_charger_control =
 					htc_battery->func_charger_control;
+	if (htc_battery->func_set_max_input_current)
+		battery_core_info.func.func_set_max_input_current =
+					htc_battery->func_set_max_input_current;
 	if (htc_battery->func_context_event_handler)
 		battery_core_info.func.func_context_event_handler =
 					htc_battery->func_context_event_handler;
-
 	if (htc_battery->func_set_full_level)
 		battery_core_info.func.func_set_full_level =
 					htc_battery->func_set_full_level;
+	if (htc_battery->func_notify_pnpmgr_charging_enabled)
+		battery_core_info.func.func_notify_pnpmgr_charging_enabled =
+					htc_battery->func_notify_pnpmgr_charging_enabled;
 
 	
 	for (i = 0; i < ARRAY_SIZE(htc_power_supplies); i++) {

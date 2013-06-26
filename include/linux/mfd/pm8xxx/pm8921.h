@@ -31,6 +31,7 @@
 #include <linux/leds-pm8921.h>
 #include <linux/mfd/pm8xxx/vibrator.h>
 #include <linux/mfd/pm8xxx/ccadc.h>
+#include <linux/seq_file.h> 
 
 #define PM8921_NR_IRQS		256
 
@@ -137,4 +138,7 @@ struct pm8921_platform_data {
 	struct pm8xxx_pwm_platform_data		*pwm_pdata;
 };
 int pmic_vreg_dump(char *vreg_buffer, int curr_len);
+int pmic_suspend_reg_dump(char *pmic_reg_buffer, int curr_len);
+int pmic8921_regs_dump(int id, struct seq_file *m, char *pmic_reg_buffer, int curr_len);
+
 #endif

@@ -51,7 +51,7 @@ void fsm_restart(char mode, const char *cmd);
 #endif
 
 extern int pmic_reset_irq;
-extern char *saved_command_line;
+extern char *hashed_command_line;
 
 #endif
 

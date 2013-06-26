@@ -1451,6 +1451,11 @@ static int trie_flush_leaf(struct leaf *l)
 static struct leaf *leaf_walk_rcu(struct tnode *p, struct rt_trie_node *c)
 {
 
+	void *pq;
+	if ((!p) || (IS_ERR(p)) || (probe_kernel_address(p,pq))) {
+		printk(KERN_DEBUG "[NET][WARN] p is illegal in %s \n", __func__);
+		return NULL; 
+	}
 	printk(KERN_DEBUG "[NET]%s+\n", __func__);
 
 	do {
@@ -1512,7 +1517,7 @@ static struct leaf *trie_nextleaf(struct leaf *l)
 	struct rt_trie_node *c = (struct rt_trie_node *) l;
 	struct tnode *p = node_parent_rcu(c);
 
-	if (!p)
+	if ((!p) || (IS_ERR(p)))
 		return NULL;	
 
 	return leaf_walk_rcu(p, c);

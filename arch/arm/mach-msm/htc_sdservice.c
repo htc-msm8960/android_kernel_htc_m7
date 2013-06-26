@@ -54,17 +54,22 @@
 #define HTC_IOCTL_SEC_ATS_GET	0x9528
 #define HTC_IOCTL_SEC_ATS_SET	0x9529
 
+#define TAG "[SEC] "
 #define HTC_SDSERVICE_DEBUG	0
 #undef PDEBUG
 #if HTC_SDSERVICE_DEBUG
-#define PDEBUG(fmt, args...) printk(KERN_INFO "%s(%i, %s): " fmt "\n", \
+#define PDEBUG(fmt, args...) printk(KERN_INFO TAG "[K] %s(%i, %s): " fmt "\n", \
 		__func__, current->pid, current->comm, ## args)
 #else
 #define PDEBUG(fmt, args...) do {} while (0)
 #endif 
 
 #undef PERR
-#define PERR(fmt, args...) printk(KERN_ERR "%s(%i, %s): " fmt "\n", \
+#define PERR(fmt, args...) printk(KERN_ERR TAG "[E] %s(%i, %s): " fmt "\n", \
+		__func__, current->pid, current->comm, ## args)
+
+#undef PINFO
+#define PINFO(fmt, args...) printk(KERN_INFO TAG "[I] %s(%i, %s): " fmt "\n", \
 		__func__, current->pid, current->comm, ## args)
 
 static int htc_sdservice_major;
@@ -171,7 +176,7 @@ int oem_rapi_client_cb(struct msm_rpc_client *client,
 	}
 	rc = xdr_send_msg(xdr);
 	if (rc)
-		pr_err("%s: sending reply failed: %d\n", __func__, rc);
+		PERR("sending reply failed: %d", rc);
 
 	kfree(arg.input);
 	kfree(ret.out_len);
@@ -245,8 +250,7 @@ int oem_rapi_client_close2(void)
 	if (open_count > 0) {
 		if (--open_count == 0) {
 			msm_rpc_unregister_client(rpc_client);
-			pr_info("%s: disconnected from remote oem rapi server\n",
-				__func__);
+			PDEBUG("Disconnected from remote oem rapi server");
 		}
 	}
 	mutex_unlock(&oem_rapi_client_lock);
@@ -279,7 +283,7 @@ ssize_t oem_rapi_pack_send(unsigned int operation, char *buf, size_t size)
 	struct oem_rapi_client_streaming_func_arg arg;
 	struct oem_rapi_client_streaming_func_ret ret;
 
-	printk(KERN_INFO "oem_rapi_pack start:\n");
+	PINFO("oem_rapi_pack start:");
 	arg.event = operation;
 	arg.cb_func = NULL;
 	arg.handle = (void *)0;
@@ -293,14 +297,14 @@ ssize_t oem_rapi_pack_send(unsigned int operation, char *buf, size_t size)
 
 	ret_rpc = oem_rapi_client_streaming_function2(rpc_client, &arg, &ret);
 	if (ret_rpc) {
-		printk(KERN_ERR "%s: Send data from modem failed: %d\n", __func__, ret_rpc);
+		PERR("Send data from modem failed: %d", ret_rpc);
 		return -EFAULT;
 	}
-	printk(KERN_INFO "%s: Data sent to modem %s\n", __func__, buf);
+	PINFO("Data sent to modem %s", buf);
 	if(ret.output)
 		memcpy(buf, ret.output, OEM_RAPI_CLIENT_MAX_OUT_BUFF_SIZE);
 	else{
-		printk(KERN_ERR "%s: Receive data from modem failed\n", __func__);
+		PERR("Receive data from modem failed");
 		return -EFAULT;
 	}
 
@@ -314,7 +318,7 @@ static long htc_sdservice_ioctl(struct file *file, unsigned int command, unsigne
 	htc_sec_ats_t amsg;
 	int ret = 0;
 
-	PDEBUG("command = %x\n", command);
+	PDEBUG("command = %x", command);
 	switch (command) {
 	case HTC_IOCTL_SDSERVICE:
 		if (copy_from_user(&hmsg, (void __user *)arg, sizeof(hmsg))) {
@@ -324,7 +328,7 @@ static long htc_sdservice_ioctl(struct file *file, unsigned int command, unsigne
 #ifdef CONFIG_ARCH_MSM7X30
 		oem_rapi_client_init2();
 #endif 
-		PDEBUG("func = %x\n", hmsg.func);
+		PDEBUG("func = %x", hmsg.func);
 		switch (hmsg.func) {
 		case ITEM_SD_KEY_ENCRYPT:
 			if ((hmsg.req_buf == NULL) || (hmsg.req_len != HTC_SDKEY_LEN)) {
@@ -342,7 +346,7 @@ static long htc_sdservice_ioctl(struct file *file, unsigned int command, unsigne
 			ret = secure_access_item(0, ITEM_SD_KEY_ENCRYPT, hmsg.req_len, htc_sdkey);
 #endif	
 			if (ret)
-				PERR("Encrypt SD key fail (%d)\n", ret);
+				PERR("Encrypt SD key fail (%d)", ret);
 
 			scm_inv_range((uint32_t)htc_sdkey, (uint32_t)htc_sdkey + HTC_SDKEY_LEN);
 			if (copy_to_user((void __user *)hmsg.resp_buf, htc_sdkey, hmsg.req_len)) {
@@ -367,7 +371,7 @@ static long htc_sdservice_ioctl(struct file *file, unsigned int command, unsigne
 			ret = secure_access_item(0, ITEM_SD_KEY_DECRYPT, hmsg.req_len, htc_sdkey);
 #endif	
 			if (ret)
-				PERR("Encrypt SD key fail (%d)\n", ret);
+				PERR("Encrypt SD key fail (%d)", ret);
 
 			scm_inv_range((uint32_t)htc_sdkey, (uint32_t)htc_sdkey + HTC_SDKEY_LEN);
 			if (copy_to_user((void __user *)hmsg.resp_buf, htc_sdkey, hmsg.req_len)) {
@@ -377,7 +381,7 @@ static long htc_sdservice_ioctl(struct file *file, unsigned int command, unsigne
 			break;
 
 		default:
-			PERR("func error\n");
+			PERR("func error");
 			return -EFAULT;
 		}
 		break;
@@ -389,7 +393,7 @@ static long htc_sdservice_ioctl(struct file *file, unsigned int command, unsigne
 		}
 		ret = secure_access_item(0, ITEM_SEC_ATS, sizeof(htc_sec_ats_t), (unsigned char *)&amsg);
 		if (ret) {
-			PERR("ATS service fail (%d)\n", ret);
+			PERR("ATS service fail (%d)", ret);
 			return ret;
 		}
 		scm_inv_range((uint32_t)&amsg, (uint32_t)&amsg + sizeof(htc_sec_ats_t));
@@ -409,14 +413,14 @@ static long htc_sdservice_ioctl(struct file *file, unsigned int command, unsigne
 			PERR("copy_from_user error (msg)");
 			return -EFAULT;
 		}
-		PDEBUG("func = %x, sizeof htc_sec_ats_t = %d\n", amsg.func_info.func_id, sizeof(htc_sec_ats_t));
+		PDEBUG("func = %x, sizeof htc_sec_ats_t = %d", amsg.func_info.func_id, sizeof(htc_sec_ats_t));
 		ret = secure_access_item(1, ITEM_SEC_ATS, sizeof(htc_sec_ats_t), (unsigned char *)&amsg);
 		if (ret)
-			PERR("ATS service fail (%d)\n", ret);
+			PERR("ATS service fail (%d)", ret);
 		break;
 
 	default:
-		PERR("command error\n");
+		PERR("command error");
 		return -EFAULT;
 	}
 	return ret;
@@ -446,13 +450,13 @@ static int __init htc_sdservice_init(void)
 
 	htc_sdkey = kzalloc(HTC_SDKEY_LEN, GFP_KERNEL);
 	if (htc_sdkey == NULL) {
-		PERR("allocate the space for SD key failed\n");
+		PERR("allocate the space for SD key failed");
 		return -1;
 	}
 
 	ret = register_chrdev(0, DEVICE_NAME, &htc_sdservice_fops);
 	if (ret < 0) {
-		PERR("register module fail\n");
+		PERR("register module fail");
 		return ret;
 	}
 	htc_sdservice_major = ret;
@@ -460,7 +464,7 @@ static int __init htc_sdservice_init(void)
 	htc_sdservice_class = class_create(THIS_MODULE, "htc_sdservice");
 	device_create(htc_sdservice_class, NULL, MKDEV(htc_sdservice_major, 0), NULL, DEVICE_NAME);
 
-	PDEBUG("register module ok\n");
+	PDEBUG("register module ok");
 	return 0;
 }
 
@@ -472,7 +476,7 @@ static void  __exit htc_sdservice_exit(void)
 	class_destroy(htc_sdservice_class);
 	unregister_chrdev(htc_sdservice_major, DEVICE_NAME);
 	kfree(htc_sdkey);
-	PDEBUG("un-registered module ok\n");
+	PDEBUG("un-registered module ok");
 }
 
 module_init(htc_sdservice_init);

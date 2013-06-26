@@ -661,6 +661,7 @@ uint32_t pm8xxx_adc_read(enum pm8xxx_adc_channels channel,
 	struct pm8xxx_adc *adc_pmic = pmic_adc;
 	int i = 0, rc = 0, rc_fail, amux_prescaling, scale_type;
 	enum pm8xxx_adc_premux_mpp_scale_type mpp_scale;
+	u8 data_arb_usrp_cntrl1 = 0;
 	static int timeout_count = 0;
 
 	if (!pm8xxx_adc_initialized)
@@ -722,11 +723,20 @@ uint32_t pm8xxx_adc_read(enum pm8xxx_adc_channels channel,
 
 	rc = wait_for_completion_timeout(&adc_pmic->adc_rslt_completion, HZ);
 	if (!rc) {
-		timeout_count++;
-		pr_err("%s: wait_for_completion_timeout:%d,ch=%d,(count=%d)",
-				__func__, rc, channel, timeout_count);
-		rc = -ETIMEDOUT;
-		goto fail;
+		rc = pm8xxx_adc_read_reg(PM8XXX_ADC_ARB_USRP_CNTRL1,
+								&data_arb_usrp_cntrl1);
+		if (rc < 0)
+			goto fail;
+		if (data_arb_usrp_cntrl1 == (PM8XXX_ADC_ARB_USRP_CNTRL1_EOC |
+							PM8XXX_ADC_ARB_USRP_CNTRL1_EN_ARB))
+			pr_debug("End of conversion status set\n");
+		else {
+			timeout_count++;
+			pr_err("%s: wait_for_completion_timeout:%d,ch=%d,(count=%d)",
+					__func__, rc, channel, timeout_count);
+			rc = -ETIMEDOUT;
+			goto fail;
+		}
 	}
 
 	rc = pm8xxx_adc_read_adc_code(&result->adc_code);

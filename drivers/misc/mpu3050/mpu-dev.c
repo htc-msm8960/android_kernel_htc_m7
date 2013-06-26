@@ -1105,7 +1105,7 @@ static ssize_t mpu_lpm_flag_show(struct device *dev,
 
 	return s - buf;
 }
-#ifdef CONFIG_M7_CIR_ALWAYS
+#ifdef CONFIG_CIR_ALWAYS_READY
 extern int cir_flag;
 #endif
 static ssize_t mpu_lpm_flag_store(struct device *dev,
@@ -1118,7 +1118,7 @@ static ssize_t mpu_lpm_flag_store(struct device *dev,
 
 	mpu_lpm_flag = -1;
 	sscanf(buf, "%d", &mpu_lpm_flag);
-#ifdef CONFIG_M7_CIR_ALWAYS
+#ifdef CONFIG_CIR_ALWAYS_READY
 	
 	if ((mpu_lpm_flag == 1) && mldl_cfg->pdata->power_LPM && !cir_flag)
 #else
@@ -1194,7 +1194,7 @@ int mpu3050_probe(struct i2c_client *client,
 					pdata->accel.irq);
 				res = slaveirq_init(accel_adapter,
 
-#ifdef CONFIG_M7_CIR_ALWAYS
+#ifdef CONFIG_CIR_ALWAYS_READY
 						this_client,
 #endif
 						&pdata->accel,
@@ -1223,7 +1223,7 @@ int mpu3050_probe(struct i2c_client *client,
 					"Installing Compass irq using %d\n",
 					pdata->compass.irq);
 				res = slaveirq_init(compass_adapter,
-#ifdef CONFIG_M7_CIR_ALWAYS
+#ifdef CONFIG_CIR_ALWAYS_READY
 						NULL,
 #endif
 						&pdata->compass,
@@ -1253,7 +1253,7 @@ int mpu3050_probe(struct i2c_client *client,
 					"Installing Pressure irq using %d\n",
 					pdata->pressure.irq);
 				res = slaveirq_init(pressure_adapter,
-#ifdef CONFIG_M7_CIR_ALWAYS
+#ifdef CONFIG_CIR_ALWAYS_READY
 						NULL,
 #endif
 						&pdata->pressure,
@@ -1357,6 +1357,8 @@ int mpu3050_probe(struct i2c_client *client,
 	mpu_debug_flag = 0;
 	mpu_sensors_reset = 0;
 	mpu_lpm_flag = 0;
+	D("%s: MPU3050 probe success v02-Fix set ODR G-Sensor issue\n",
+		__func__);
 
 	return res;
 

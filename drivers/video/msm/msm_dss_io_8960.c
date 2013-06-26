@@ -806,20 +806,11 @@ void hdmi_msm_reset_core(void)
 void hdmi_msm_init_phy(int video_format)
 {
 	uint32 offset;
-
 	pr_err("Video format is : %u\n", video_format);
 
 	HDMI_OUTP(HDMI_PHY_REG_0, 0x1B);
-	HDMI_OUTP(HDMI_PHY_REG_1, 0xF2);
+	HDMI_OUTP(HDMI_PHY_REG_1, 0xf2);
 
-	/* Set HDMI_PHY_REG1 based on chip source id[30:28] and PTE_HDMI[31] bit
-	 * of QFPROM_RAW_PTE_ROW1_LSB */
-	 if (hdmi_msm_state->pd->source) {
-		if ((hdmi_msm_state->pd->source()) &&
-			(((inpdw(QFPROM_BASE + 0x00c0) & 0xF0000000) >> 28) ==
-									0x1))
-			HDMI_OUTP(HDMI_PHY_REG_1, 0xF1);
-	}
 	offset = HDMI_PHY_REG_4;
 	while (offset <= HDMI_PHY_REG_11) {
 		HDMI_OUTP(offset, 0x0);
@@ -835,7 +826,7 @@ void hdmi_msm_powerdown_phy(void)
 	HDMI_OUTP_ND(HDMI_PHY_REG_2, 0x7F); /*0b01111111*/
 }
 
-void hdmi_frame_ctrl_cfg(const struct msm_hdmi_mode_timing_info *timing)
+void hdmi_frame_ctrl_cfg(const struct hdmi_disp_mode_timing_type *timing)
 {
 	/*  0x02C8 HDMI_FRAME_CTRL
 	 *  31 INTERLACED_EN   Interlaced or progressive enable bit

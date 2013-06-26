@@ -23,7 +23,9 @@
 
 #include <sound/apr_audio.h>
 #include <sound/q6afe.h>
+#include "q6debug.h"
 
+#define HTC_AUD_DEBUG 1
 #undef pr_info
 #undef pr_err
 #define pr_info(fmt, ...) pr_aud_info(fmt, ##__VA_ARGS__)
@@ -449,7 +451,7 @@ static int send_adm_cal_block(int port_id, struct acdb_cal_block *aud_cal)
 	if (!result) {
 		pr_err("%s: Set params timed out port = %d, payload = 0x%x\n",
 			__func__, port_id, aud_cal->cal_paddr);
-                
+		HTC_Q6_BUG();
 		result = -EINVAL;
 		goto done;
 	}
@@ -590,7 +592,7 @@ int adm_connect_afe_port(int mode, int session_id, int port_id)
 		pr_err("%s ADM connect AFE failed for port %d\n", __func__,
 							port_id);
 		ret = -EINVAL;
-                
+		HTC_Q6_BUG();
 		goto fail_cmd;
 	}
 	atomic_inc(&this_adm.copp_cnt[index]);
@@ -660,7 +662,7 @@ int adm_disconnect_afe_port(int mode, int session_id, int port_id)
 	if (!ret) {
 		pr_err("%s ADM connect AFE failed for port %d\n", __func__,
 							port_id);
-                
+		HTC_Q6_BUG();
 		ret = -EINVAL;
 		goto fail_cmd;
 	}
@@ -770,7 +772,7 @@ int adm_open(int port_id, int path, int rate, int channel_mode, int topology)
 			pr_err("%s ADM open failed for port %d\n", __func__,
 								port_id);
 			ret = -EINVAL;
-                        
+			HTC_Q6_BUG();
 			goto fail_cmd;
 		}
 	}
@@ -867,6 +869,8 @@ int adm_multi_ch_copp_open(int port_id, int path, int rate, int channel_mode,
 					channel_mode);
 			return -EINVAL;
 		}
+
+
 		open.hdr.src_svc = APR_SVC_ADM;
 		open.hdr.src_domain = APR_DOMAIN_APPS;
 		open.hdr.src_port = port_id;
@@ -926,9 +930,7 @@ int adm_multi_ch_copp_open(int port_id, int path, int rate, int channel_mode,
 		if (!ret) {
 			pr_err("%s ADM open failed for port %d\n", __func__,
 								port_id);
-#ifdef HTC_AUD_DEBUG
-                        
-#endif
+			HTC_Q6_BUG();
 			ret = -EINVAL;
 			goto fail_cmd;
 		}
@@ -1170,7 +1172,7 @@ int adm_matrix_map(int session_id, int path, int num_copps,
 	if (!ret) {
 		pr_err("%s: ADM cmd Route failed for port %d\n",
 					__func__, port_id[0]);
-                
+		HTC_Q6_BUG();
 		ret = -EINVAL;
 		goto fail_cmd;
 	}
@@ -1256,7 +1258,7 @@ int adm_memory_map_regions(uint32_t *buf_add, uint32_t mempool_id,
 			atomic_read(&this_adm.copp_stat[0]), 5 * HZ);
 	if (!ret) {
 		pr_err("%s: timeout. waited for memory_map\n", __func__);
-                
+		HTC_Q6_BUG();
 		ret = -EINVAL;
 		goto fail_cmd;
 	}
@@ -1326,7 +1328,7 @@ int adm_memory_unmap_regions(uint32_t *buf_add, uint32_t *bufsz,
 			atomic_read(&this_adm.copp_stat[0]), 5 * HZ);
 	if (!ret) {
 		pr_err("%s: timeout. waited for memory_unmap\n", __func__);
-                
+		HTC_Q6_BUG();
 		ret = -EINVAL;
 		goto fail_cmd;
 	}
@@ -1411,7 +1413,7 @@ int adm_close(int port_id)
 		if (!ret) {
 			pr_err("%s: ADM cmd Route failed for port %d\n",
 						__func__, port_id);
-                        
+			HTC_Q6_BUG();
 			ret = -EINVAL;
 			goto fail_cmd;
 		}

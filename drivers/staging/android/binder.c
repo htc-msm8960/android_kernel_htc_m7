@@ -723,8 +723,7 @@ static struct binder_buffer *binder_alloc_buf(struct binder_proc *proc,
 
 	if (is_async &&
 	    proc->free_async_space < size + sizeof(struct binder_buffer)) {
-		binder_debug(BINDER_DEBUG_BUFFER_ALLOC,
-			     "binder: %d: binder_alloc_buf size %zd"
+		printk(KERN_INFO "binder: %d: binder_alloc_buf size %zd"
 			     "failed, no async space left\n", proc->pid, size);
 		return NULL;
 	}
@@ -1382,6 +1381,7 @@ static void binder_transaction(struct binder_proc *proc,
 	struct binder_transaction *in_reply_to = NULL;
 	struct binder_transaction_log_entry *e;
 	uint32_t return_error;
+	char brdr_fp = 0;
 
 	e = binder_transaction_log_add(&binder_transaction_log);
 	e->call_type = reply ? 2 : !!(tr->flags & TF_ONE_WAY);
@@ -1418,6 +1418,7 @@ static void binder_transaction(struct binder_proc *proc,
 		target_thread = in_reply_to->from;
 		if (target_thread == NULL) {
 			return_error = BR_DEAD_REPLY;
+			brdr_fp=0x11;
 			goto err_dead_binder;
 		}
 		if (target_thread->transaction_stack != in_reply_to) {
@@ -1450,6 +1451,7 @@ static void binder_transaction(struct binder_proc *proc,
 			target_node = binder_context_mgr_node;
 			if (target_node == NULL) {
 				return_error = BR_DEAD_REPLY;
+				brdr_fp=0x22;
 				goto err_no_context_mgr_node;
 			}
 		}
@@ -1457,6 +1459,7 @@ static void binder_transaction(struct binder_proc *proc,
 		target_proc = target_node->proc;
 		if (target_proc == NULL) {
 			return_error = BR_DEAD_REPLY;
+			brdr_fp=0x33;
 			goto err_dead_binder;
 		}
 		if (!(tr->flags & TF_ONE_WAY) && thread->transaction_stack) {
@@ -1764,9 +1767,9 @@ err_dead_binder:
 err_invalid_target_handle:
 err_no_context_mgr_node:
 	binder_debug(BINDER_DEBUG_FAILED_TRANSACTION,
-		     "binder: %d:%d transaction failed %d, size %zd-%zd\n",
+		     "binder: %d:%d transaction failed %d, size %zd-%zd, brdr_fp %X\n",
 		     proc->pid, thread->pid, return_error,
-		     tr->data_size, tr->offsets_size);
+		     tr->data_size, tr->offsets_size, brdr_fp);
 
 	{
 		struct binder_transaction_log_entry *fe;
@@ -2500,14 +2503,38 @@ static void binder_release_work(struct list_head *list)
 			struct binder_transaction *t;
 
 			t = container_of(w, struct binder_transaction, work);
-			if (t->buffer->target_node && !(t->flags & TF_ONE_WAY))
+			if (t->buffer->target_node &&
+			    !(t->flags & TF_ONE_WAY)) {
 				binder_send_failed_reply(t, BR_DEAD_REPLY);
+			} else {
+				binder_debug(BINDER_DEBUG_DEAD_TRANSACTION,
+					"binder: undelivered transaction %d\n",
+					t->debug_id);
+				t->buffer->transaction = NULL;
+				kfree(t);
+				binder_stats_deleted(BINDER_STAT_TRANSACTION);
+			}
 		} break;
 		case BINDER_WORK_TRANSACTION_COMPLETE: {
+			binder_debug(BINDER_DEBUG_DEAD_TRANSACTION,
+				"binder: undelivered TRANSACTION_COMPLETE\n");
 			kfree(w);
 			binder_stats_deleted(BINDER_STAT_TRANSACTION_COMPLETE);
 		} break;
+		case BINDER_WORK_DEAD_BINDER_AND_CLEAR:
+		case BINDER_WORK_CLEAR_DEATH_NOTIFICATION: {
+			struct binder_ref_death *death;
+
+			death = container_of(w, struct binder_ref_death, work);
+			binder_debug(BINDER_DEBUG_DEAD_TRANSACTION,
+				"binder: undelivered death notification, %p\n",
+				death->cookie);
+			kfree(death);
+			binder_stats_deleted(BINDER_STAT_DEATH);
+		} break;
 		default:
+			pr_err("binder: unexpected work type, %d, not freed\n",
+			       w->type);
 			break;
 		}
 	}
@@ -2977,6 +3004,7 @@ static void binder_deferred_release(struct binder_proc *proc)
 		nodes++;
 		rb_erase(&node->rb_node, &proc->nodes);
 		list_del_init(&node->work.entry);
+		binder_release_work(&node->async_todo);
 		if (hlist_empty(&node->refs)) {
 			kfree(node);
 			binder_stats_deleted(BINDER_STAT_NODE);
@@ -3015,6 +3043,7 @@ static void binder_deferred_release(struct binder_proc *proc)
 		binder_delete_ref(ref);
 	}
 	binder_release_work(&proc->todo);
+	binder_release_work(&proc->delivered_death);
 	buffers = 0;
 
 	while ((n = rb_first(&proc->allocated_buffers))) {

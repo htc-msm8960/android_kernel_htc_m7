@@ -79,17 +79,20 @@ struct htc_charger {
 			(enum htc_power_source_type src,
 			 bool chg_enable, bool pwrsrc_enable);
 	int (*set_limit_charge_enable)(bool enable);
+	int (*is_batt_charge_enable)(void);
 	int (*toggle_charger)(void);
 	int (*is_ovp)(int *result);
 	int (*is_batt_temp_fault_disable_chg)(int *result);
 	int (*charger_change_notifier_register)
 			(struct t_cable_status_notifier *notifier);
+	int (*max_input_current)(int target_ma);
 	int (*dump_all)(void);
 	int (*is_charging_enabled)(int *result);
 	int (*is_under_rating)(int *result);
 	int (*get_attr_text)(char *buf, int size);
 	int (*enable_5v_output)(bool enable);
 	int (*is_safty_timer_timeout)(int *result);
+	int (*is_battery_full_eoc_stop)(int *result);
 };
 
 int htc_charger_event_notify(enum htc_charger_event);

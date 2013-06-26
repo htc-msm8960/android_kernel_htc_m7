@@ -41,9 +41,9 @@ static int m7_get_hw_component(void)
 
 static int m7_enable_digital_mic(void)
 {
-	printk(KERN_INFO "m7_enable_digital_mic:skuid=0x%x, system_rev=%x\n", skuid, system_rev);
+	int ret;
 	if((system_rev == XA)||(system_rev == XB)){
-		return 0;
+		ret = 0;
 	}
 	else if ((system_rev == XC)||(system_rev == XD)){
 		if (((skuid & 0xFF) == 0x0B) ||
@@ -57,17 +57,24 @@ static int m7_enable_digital_mic(void)
 			((skuid & 0xFF) == 0x13) ||
 			((skuid & 0xFF) == 0x14) ||
 			((skuid & 0xFF) == 0x15)) {
-			printk(KERN_INFO "(skuid & 0xFF) == %x\n", (skuid & 0xFF));
-			return 1;
+			ret = 1;
 		}
-		else{
-			return 0;
-			printk(KERN_INFO "without DMIC (skuid & 0xFF) == %x\n", (skuid & 0xFF));
+		else {
+			ret = 0;
 		}
 	}
-	else{
-	    return 1;
+	else {
+		if ((skuid & 0xFFF00) == 0x34C00) {
+			ret = 1;
+		} else if ((skuid & 0xFFF00) == 0x38900) {
+			ret = 2;
+		} else {
+			ret = 3;
+		}
 	}
+	printk(KERN_INFO "%s: skuid=0x%x, system_rev=%x return %d\n",
+			__func__, skuid, system_rev, ret);
+	return ret;
 }
 
 void apq8064_set_q6_effect_mode(int mode)

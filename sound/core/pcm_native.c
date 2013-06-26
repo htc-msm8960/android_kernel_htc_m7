@@ -391,8 +391,10 @@ static int snd_pcm_hw_params(struct snd_pcm_substream *substream,
 	snd_pcm_uframes_t frames;
 
 	
-	if (PCM_RUNTIME_CHECK(substream))
+	if (PCM_RUNTIME_CHECK(substream)) {
+		pr_info("%s: substream is NULL\n", __func__);
 		return -ENXIO;
+	}
 
 	runtime = substream->runtime;
 	snd_pcm_stream_lock_irq(substream);
@@ -403,28 +405,37 @@ static int snd_pcm_hw_params(struct snd_pcm_substream *substream,
 		break;
 	default:
 		snd_pcm_stream_unlock_irq(substream);
+		pr_info("%s: runtime->status->state %d\n",__func__,runtime->status->state);
 		return -EBADFD;
 	}
 	snd_pcm_stream_unlock_irq(substream);
 #if defined(CONFIG_SND_PCM_OSS) || defined(CONFIG_SND_PCM_OSS_MODULE)
 	if (!substream->oss.oss)
 #endif
-		if (atomic_read(&substream->mmap_count))
+		if (atomic_read(&substream->mmap_count)) {
+			pr_info("%s: mmap_count is 0\n", __func__);
 			return -EBADFD;
+		}
 
 	params->rmask = ~0U;
 	err = snd_pcm_hw_refine(substream, params);
-	if (err < 0)
+	if (err < 0) {
+		pr_info("%s: snd_pcm_hw_refine err: %d\n", __func__, err);
 		goto _error;
+	}
 
 	err = snd_pcm_hw_params_choose(substream, params);
-	if (err < 0)
+	if (err < 0) {
+		pr_info("%s: snd_pcm_hw_params_choose err: %d\n", __func__, err);
 		goto _error;
+	}
 
 	if (substream->ops->hw_params != NULL) {
 		err = substream->ops->hw_params(substream, params);
-		if (err < 0)
+		if (err < 0) {
+			pr_info("%s: substream->ops->hw_params err: %d\n", __func__, err);
 			goto _error;
+		}
 	}
 
 	runtime->access = params_access(params);
@@ -489,13 +500,17 @@ static int snd_pcm_hw_params_user(struct snd_pcm_substream *substream,
 	int err;
 
 	params = memdup_user(_params, sizeof(*params));
-	if (IS_ERR(params))
+	if (IS_ERR(params)) {
+		pr_info("%s: IS_ERR(params)\n", __func__);
 		return PTR_ERR(params);
+	}
 
 	err = snd_pcm_hw_params(substream, params);
 	if (copy_to_user(_params, params, sizeof(*params))) {
-		if (!err)
+		if (!err) {
+			pr_info("%s: err = %d\n", __func__, err);
 			err = -EFAULT;
+		}
 	}
 
 	kfree(params);

@@ -254,10 +254,6 @@ int mmc_add_card(struct mmc_card *card)
 	int ret;
 	const char *type;
 	const char *uhs_bus_speed_mode = "";
-	u8 *ext_csd;
-	char *buf;
-	int err, i, j;
-	ssize_t n = 0;
 	static const char *const uhs_speeds[] = {
 		[UHS_SDR12_BUS_SPEED] = "SDR12 ",
 		[UHS_SDR25_BUS_SPEED] = "SDR25 ",
@@ -320,39 +316,6 @@ int mmc_add_card(struct mmc_card *card)
 			(mmc_card_hs200(card) ? "HS200 " : ""),
 			mmc_card_ddr_mode(card) ? "DDR " : "",
 			uhs_bus_speed_mode, type, card->rca);
-		if (mmc_card_mmc(card)) {
-			pr_info("%s: cid %08x%08x%08x%08x\n",
-				mmc_hostname(card->host),
-				card->raw_cid[0], card->raw_cid[1],
-				card->raw_cid[2], card->raw_cid[3]);
-			pr_info("%s: csd %08x%08x%08x%08x\n",
-				mmc_hostname(card->host),
-				card->raw_csd[0], card->raw_csd[1],
-				card->raw_csd[2], card->raw_csd[3]);
-
-			ext_csd = kmalloc(512, GFP_KERNEL);
-			if(ext_csd) {
-				mmc_claim_host(card->host);
-				err = mmc_send_ext_csd(card, ext_csd);
-				mmc_release_host(card->host);
-				if (!err) {
-					buf = kmalloc(512, GFP_KERNEL);
-					if (buf) {
-						for (i = 0; i < 32; i++) {
-							for (j = 511 - (16 * i); j >= 496 - (16 * i); j--)
-								n += sprintf(buf + n, "%02x", ext_csd[j]);
-							n += sprintf(buf + n, "\n");
-							pr_info("%s: ext_csd %s", mmc_hostname(card->host), buf);
-							n = 0;
-						}
-					}
-					if (buf)
-						kfree(buf);
-				}
-			}
-			if (ext_csd)
-				kfree(ext_csd);
-		}
 	}
 
 #ifdef CONFIG_DEBUG_FS
