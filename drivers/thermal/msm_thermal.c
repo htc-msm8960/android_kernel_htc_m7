@@ -243,7 +243,7 @@ static void disable_msm_thermal(void)
     int cpu = 0;
     struct cpufreq_policy *cpu_policy = NULL;
 
-     enabled = 0;
+     is_msm_thermal_guard_enabled = 0;
     /* make sure check_temp is no longer running */
     cancel_delayed_work(&check_temp_work);
     flush_scheduled_work();
