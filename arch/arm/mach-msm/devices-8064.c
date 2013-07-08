@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -220,11 +220,7 @@ static struct resource resources_uart_gsbi2[] = {
 
 struct platform_device apq8064_device_uart_gsbi2 = {
 	.name	= "msm_serial_hsl",
-#ifdef CONFIG_SERIAL_CIR
-	.id	= 4,
-#else
 	.id	= 3,
-#endif
 	.num_resources	= ARRAY_SIZE(resources_uart_gsbi2),
 	.resource	= resources_uart_gsbi2,
 };
@@ -294,7 +290,7 @@ struct platform_device apq8064_device_uart_gsbi3 = {
 	.id	= 2,
 #elif defined CONFIG_SERIAL_CIR
 	.name	= "msm_serial_cir",
-	.id	= 3,
+	.id	= 2,
 #else
 	.name	= "msm_serial_hsl",
 	.id	= 0,
@@ -718,6 +714,11 @@ struct platform_device apq_compr_dsp = {
 
 struct platform_device apq_multi_ch_pcm = {
 	.name   = "msm-multi-ch-pcm-dsp",
+	.id     = -1,
+};
+
+struct platform_device apq_lowlatency_pcm = {
+	.name   = "msm-lowlatency-pcm-dsp",
 	.id     = -1,
 };
 
@@ -1233,26 +1234,26 @@ static struct msm_bus_vectors vidc_venc_1080p_turbo_vectors[] = {
 	{
 		.src = MSM_BUS_MASTER_VIDEO_ENC,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
-		.ab  = 222298112,
+		.ab  = 372244480,
 		.ib  = 3522000000U,
 	},
 	{
 		.src = MSM_BUS_MASTER_VIDEO_DEC,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
-		.ab  = 330301440,
+		.ab  = 501219328,
 		.ib  = 3522000000U,
 	},
 	{
 		.src = MSM_BUS_MASTER_AMPSS_M0,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
 		.ab  = 2500000,
-		.ib  = 700000000,
+		.ib  = 5000000,
 	},
 	{
 		.src = MSM_BUS_MASTER_AMPSS_M0,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
 		.ab  = 2500000,
-		.ib  = 10000000,
+		.ib  = 5000000,
 	},
 };
 static struct msm_bus_vectors vidc_vdec_1080p_turbo_vectors[] = {
@@ -1361,6 +1362,7 @@ struct msm_vidc_platform_data apq8064_vidc_platform_data = {
 	.disable_fullhd = 0,
 	.cont_mode_dpb_count = 18,
 	.fw_addr = 0x9fe00000,
+	.enable_sec_metadata = 1,
 };
 
 struct platform_device apq8064_msm_device_vidc = {

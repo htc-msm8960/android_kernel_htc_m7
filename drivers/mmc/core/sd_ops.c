@@ -167,6 +167,10 @@ int mmc_send_app_op_cond(struct mmc_host *host, u32 ocr, u32 *rocr)
 		mmc_delay(10);
 	}
 
+	if(err)
+		printk(KERN_ERR "%s: ACMD 41 init process fail : resp : %#x\n",
+			mmc_hostname(host), cmd.resp[0]);
+
 	if (rocr && !mmc_host_is_spi(host))
 		*rocr = cmd.resp[0];
 

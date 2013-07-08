@@ -2220,7 +2220,7 @@ dhdsdio_sendfromq(dhd_bus_t *bus, uint maxframes)
 			dhd_os_sdlock_txq(bus->dhd);
 			glom_cnt = MIN(DATABUFCNT(bus), bus->glomsize);
 			glom_cnt = MIN(glom_cnt, pktq_mlen(&bus->txq, tx_prec_map));
-			glom_cnt = MIN(glom_cnt, maxframes-cnt);
+			
 
 			
 			if (bus->glom_mode == SDPCM_TXGLOM_CPY)
@@ -4581,12 +4581,20 @@ dhdsdio_rxfail(dhd_bus_t *bus, bool abort, bool rtx)
 	}
 
 	bcmsdh_cfg_write(sdh, SDIO_FUNC_1, SBSDIO_FUNC1_FRAMECTRL, SFC_RF_TERM, &err);
+	if (err) {
+		DHD_ERROR(("%s: SBSDIO_FUNC1_FRAMECTRL cmd err\n", __FUNCTION__));
+		goto fail;
+	}
 	bus->f1regdata++;
 
 	
 	for (lastrbc = retries = 0xffff; retries > 0; retries--) {
 		hi = bcmsdh_cfg_read(sdh, SDIO_FUNC_1, SBSDIO_FUNC1_RFRAMEBCHI, NULL);
-		lo = bcmsdh_cfg_read(sdh, SDIO_FUNC_1, SBSDIO_FUNC1_RFRAMEBCLO, NULL);
+		lo = bcmsdh_cfg_read(sdh, SDIO_FUNC_1, SBSDIO_FUNC1_RFRAMEBCLO, &err);
+		if (err) {
+			DHD_ERROR(("%s: SBSDIO_FUNC1_RFAMEBCLO cmd err\n", __FUNCTION__));
+			goto fail;
+		}
 		bus->f1regdata += 2;
 
 		if ((hi == 0) && (lo == 0))
@@ -4617,6 +4625,7 @@ dhdsdio_rxfail(dhd_bus_t *bus, bool abort, bool rtx)
 	
 	bus->nextlen = 0;
 
+fail:
 	
 	if (err || bcmsdh_regfail(sdh))
 		bus->dhd->busstate = DHD_BUS_DOWN;
@@ -5972,17 +5981,6 @@ dhdsdio_dpc(dhd_bus_t *bus)
 	
 	intstatus = bus->intstatus;
 
-	
-	if (multi_core_locked) {
-		if ((current->on_cpu > 0) && !(dhd_dpc_prio < MAX_RT_PRIO)) {
-			struct sched_param param;
-			param.sched_priority = dhd_dpc_prio = (MAX_RT_PRIO-1);
-			setScheduler(current, SCHED_FIFO, &param);
-			printf("change dhd_dpc to RT priority: %d", dhd_dpc_prio);
-		}
-	}
-	
-
 	dhd_os_sdlock(bus->dhd);
 
 	if ((bus->dhd->busstate == DHD_BUS_DOWN) || bus->dhd->hang_was_sent || module_remove) {
@@ -6003,7 +6001,7 @@ dhdsdio_dpc(dhd_bus_t *bus)
 		int err;
 		uint8 clkctl, devctl = 0;
 
-#ifdef DHD_DEBUG
+#if 0
 		
 		devctl = bcmsdh_cfg_read(sdh, SDIO_FUNC_1, SBSDIO_DEVICE_CTL, &err);
 		if (err) {

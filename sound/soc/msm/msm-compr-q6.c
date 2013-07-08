@@ -27,6 +27,7 @@
 #include <sound/control.h>
 #include <sound/q6asm.h>
 #include <sound/q6adm.h>
+#include <sound/pcm_params.h>
 #include <asm/dma.h>
 #include <linux/dma-mapping.h>
 #include <linux/android_pmem.h>
@@ -56,8 +57,8 @@ struct snd_msm {
 	struct msm_audio *prtd;
 	unsigned volume;
 };
-static struct snd_msm compressed_audio = {NULL, 0} ;
-static struct snd_msm compressed2_audio = {NULL, 0} ;
+static struct snd_msm compressed_audio = {NULL, 0x20002000} ;
+static struct snd_msm compressed2_audio = {NULL, 0x20002000} ;
 
 static struct audio_locks the_locks;
 
@@ -94,11 +95,11 @@ static struct snd_pcm_hardware msm_compr_hardware_playback = {
 	.rate_max =	     48000,
 	.channels_min =	 1,
 	.channels_max =	 2,
-	.buffer_bytes_max =     2 * 1024 * 1024,
-	.period_bytes_min =	8 * 1024,
-	.period_bytes_max =     1024 * 1024,
-	.periods_min =	  2,
-	.periods_max =	  256,
+	.buffer_bytes_max =     1024 * 1024,
+	.period_bytes_min =	128 * 1024,
+	.period_bytes_max =     256 * 1024,
+	.periods_min =	  4,
+	.periods_max =	  8,
 	.fifo_size =	    0,
 };
 
@@ -361,6 +362,15 @@ static int msm_compr_playback_prepare(struct snd_pcm_substream *substream)
 		if (ret < 0)
 			pr_info("[%p] %s: CMD Format block failed\n", prtd, __func__);
 		break;
+	case SND_AUDIOCODEC_PCM:
+		pr_debug("[%p] %s: SND_AUDIOCODEC_PCM, sampleRate: %d, channel: %d\n",
+				prtd, __func__, prtd->samp_rate, prtd->channel_mode);
+		ret = q6asm_media_format_block_pcm(prtd->audio_client, prtd->samp_rate,
+				prtd->channel_mode);
+		if (ret < 0)
+			pr_info("[%p] %s: CMD Format block failed\n", prtd, __func__);
+		break;
+
 	case SND_AUDIOCODEC_AAC:
 		pr_debug("[%p] %s: SND_AUDIOCODEC_AAC\n", prtd, __func__);
 		memset(&aac_cfg, 0x0, sizeof(struct asm_aac_cfg));
@@ -513,12 +523,12 @@ static int msm_compr_trigger(struct snd_pcm_substream *substream, int cmd)
 				soc_prtd->dai_link->be_id,
 				prtd->session_id, substream->stream, 1);
 		}
+		atomic_set(&prtd->pending_buffer, 1);
 	case SNDRV_PCM_TRIGGER_RESUME:
 	case SNDRV_PCM_TRIGGER_PAUSE_RELEASE:
 		pr_debug("[%p] %s: Trigger start/resume\n", prtd, __func__);
 		q6asm_run_nowait(prtd->audio_client, 0, 0, 0);
 		atomic_set(&prtd->start, 1);
-		
 		break;
 	case SNDRV_PCM_TRIGGER_STOP:
 		pr_debug("[%p] SNDRV_PCM_TRIGGER_STOP\n", prtd);
@@ -557,7 +567,7 @@ static void populate_codec_list(struct compr_audio *compr,
 {
 	pr_debug("%s\n", __func__);
 	
-	compr->info.compr_cap.num_codecs = 1;
+	compr->info.compr_cap.num_codecs = 11;
 	compr->info.compr_cap.min_fragment_size = runtime->hw.period_bytes_min;
 	compr->info.compr_cap.max_fragment_size = runtime->hw.period_bytes_max;
 	compr->info.compr_cap.min_fragments = runtime->hw.periods_min;
@@ -570,6 +580,9 @@ static void populate_codec_list(struct compr_audio *compr,
 	compr->info.compr_cap.codecs[5] = SND_AUDIOCODEC_DTS;
 	compr->info.compr_cap.codecs[6] = SND_AUDIOCODEC_DTS_LBR;
 	compr->info.compr_cap.codecs[7] = SND_AUDIOCODEC_DTS_PASS_THROUGH;
+	compr->info.compr_cap.codecs[8] = SND_AUDIOCODEC_AMRWB;
+	compr->info.compr_cap.codecs[9] = SND_AUDIOCODEC_AMRWBPLUS;
+	compr->info.compr_cap.codecs[10] = SND_AUDIOCODEC_PCM;
 	
 }
 
@@ -601,6 +614,7 @@ static int msm_compr_open(struct snd_pcm_substream *substream)
 		return -ENOMEM;
 	}
 
+	prtd->audio_client->perf_mode = false;
 	pr_info("[%p] %s: session ID %d\n", prtd, __func__, prtd->audio_client->session);
 
 	prtd->session_id = prtd->audio_client->session;
@@ -644,8 +658,9 @@ int compressed_set_volume(unsigned volume)
 {
 	int rc = 0;
 	if (compressed_audio.prtd && compressed_audio.prtd->audio_client) {
-		rc = q6asm_set_volume(compressed_audio.prtd->audio_client,
-								 volume);
+		rc = q6asm_set_lrgain(compressed_audio.prtd->audio_client,
+						(volume >> 16) & 0xFFFF,
+						volume & 0xFFFF);
 		if (rc < 0) {
 			pr_err("[%p] %s: Send Volume command failed"
 					" rc=%d\n", compressed_audio.prtd, __func__, rc);
@@ -823,7 +838,11 @@ static int msm_compr_hw_params(struct snd_pcm_substream *substream,
 		.rampingcurve = SOFT_PAUSE_CURVE_LINEAR,
 	};
 	struct asm_softvolume_params softvol = {
-		.period = 250,
+#ifdef CONFIG_MSM8960_ONLY
+		.period = 30,
+#else
+		.period = 50,
+#endif
 		.step = SOFT_VOLUME_STEP,
 		.rampingcurve = SOFT_VOLUME_CURVE_LINEAR,
 	};
@@ -869,7 +888,9 @@ static int msm_compr_hw_params(struct snd_pcm_substream *substream,
 			}
 			msm_pcm_routing_reg_phy_stream(
 				soc_prtd->dai_link->be_id,
-				prtd->session_id, substream->stream);
+				prtd->audio_client->perf_mode,
+				prtd->session_id,
+				substream->stream);
 
 			break;
 		}
@@ -889,7 +910,7 @@ static int msm_compr_hw_params(struct snd_pcm_substream *substream,
 
 	if (str_name != NULL && !strncmp(str_name,"COMPR2", 6)) {
 		if (compressed2_audio.prtd && compressed2_audio.prtd->audio_client) {
-			pr_debug("[%p] %s compressed2 set ramping\n", prtd, __func__);
+			pr_debug("[%p] %s compressed2 set ramping for %d ms\n", prtd, __func__,softvol.period);
 			ret = compressed2_set_volume(compressed2_audio.volume);
 			if (ret < 0)
 				pr_err("[%p] %s : Set Volume2 failed : %d", prtd, __func__, ret);
@@ -907,7 +928,7 @@ static int msm_compr_hw_params(struct snd_pcm_substream *substream,
 		}
 	} else {
 		if (compressed_audio.prtd && compressed_audio.prtd->audio_client) {
-			pr_debug("[%p] %s compressed set ramping\n", prtd, __func__);
+			pr_debug("[%p] %s compressed set ramping for %d ms\n", prtd, __func__,softvol.period);
 			ret = compressed_set_volume(compressed_audio.volume);
 			if (ret < 0)
 				pr_err("[%p] %s : Set Volume failed : %d", prtd,__func__, ret);
@@ -930,7 +951,17 @@ static int msm_compr_hw_params(struct snd_pcm_substream *substream,
 		pr_err("[%p] %s: Set IO mode failed\n", prtd, __func__);
 		return -ENOMEM;
 	}
-
+	/* Modifying kernel hardware params based on userspace config */
+	if (params_periods(params) > 0 &&
+		(params_periods(params) != runtime->hw.periods_max)) {
+		runtime->hw.periods_max = params_periods(params);
+	}
+	if (params_period_bytes(params) > 0 &&
+		(params_period_bytes(params) != runtime->hw.period_bytes_min)) {
+		runtime->hw.period_bytes_min = params_period_bytes(params);
+	}
+	runtime->hw.buffer_bytes_max =
+			runtime->hw.period_bytes_min * runtime->hw.periods_max;
 	ret = q6asm_audio_client_buf_alloc_contiguous(dir,
 			prtd->audio_client,
 			runtime->hw.period_bytes_min,
@@ -1018,6 +1049,11 @@ static int msm_compr_ioctl(struct snd_pcm_substream *substream,
 			
 			pr_debug("[%p] SND_AUDIOCODEC_MP3\n", prtd);
 			compr->codec = FORMAT_MP3;
+			break;
+		case SND_AUDIOCODEC_PCM:
+			
+			pr_debug("[%p] SND_AUDIOCODEC_PCM\n", prtd);
+			compr->codec = FORMAT_LINEAR_PCM;
 			break;
 		case SND_AUDIOCODEC_AAC:
 			pr_debug("[%p] SND_AUDIOCODEC_AAC\n", prtd);

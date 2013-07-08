@@ -130,13 +130,19 @@ static int msm_dai_q6_mi2s_startup(struct snd_pcm_substream *substream,
 	dev_dbg(dai->dev, "%s: cnst list %p\n", __func__,
 		mi2s_dai_data->rate_constraint.list);
 
-	if (mi2s_dai_data->rate_constraint.list) {
-		snd_pcm_hw_constraint_list(substream->runtime, 0,
-				SNDRV_PCM_HW_PARAM_RATE,
-				&mi2s_dai_data->rate_constraint);
-		snd_pcm_hw_constraint_list(substream->runtime, 0,
-				SNDRV_PCM_HW_PARAM_SAMPLE_BITS,
-				&mi2s_dai_data->bitwidth_constraint);
+	if (mi2s_dai_data->rate_constraint.list &&
+		mi2s_dai_data->bitwidth_constraint.list) {
+		if (*mi2s_dai_data->bitwidth_constraint.list == 24) {
+			dev_dbg(dai->dev, "%s: do not apply cnst list\n", __func__);
+		} else {
+			dev_dbg(dai->dev, "%s: apply cnst list\n", __func__);
+			snd_pcm_hw_constraint_list(substream->runtime, 0,
+					SNDRV_PCM_HW_PARAM_RATE,
+					&mi2s_dai_data->rate_constraint);
+			snd_pcm_hw_constraint_list(substream->runtime, 0,
+					SNDRV_PCM_HW_PARAM_SAMPLE_BITS,
+					&mi2s_dai_data->bitwidth_constraint);
+		}
 	}
 
 	return 0;
@@ -218,7 +224,7 @@ static int msm_dai_q6_mi2s_hw_params(struct snd_pcm_substream *substream,
 	}
 	dai_data->rate = params_rate(params);
 	dai_data->port_config.mi2s.bitwidth = bit_width;
-	dai_data->bitwidth = 16;
+	dai_data->bitwidth = bit_width;
 	if (!mi2s_dai_data->rate_constraint.list) {
 		mi2s_dai_data->rate_constraint.list = &dai_data->rate;
 		mi2s_dai_data->bitwidth_constraint.list = &dai_data->bitwidth;

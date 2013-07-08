@@ -120,6 +120,7 @@ struct htc_battery_platform_data {
 	struct htc_gauge igauge;
 	struct htc_charger icharger;
 	int (*get_thermal_sensor_temp)(int sensor_num, unsigned long *temp);
+	int (*notify_pnpmgr_charging_enabled)(int charging_enabled);
 };
 
 enum {

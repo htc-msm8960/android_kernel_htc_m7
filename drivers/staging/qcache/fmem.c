@@ -41,6 +41,10 @@ void *fmem_map_virtual_area(int cacheability)
 
 	addr = (unsigned long) fmem_data.area->addr;
 	type = get_mem_type(cacheability);
+
+	if (type == NULL)
+		return ERR_PTR(-EINVAL);
+
 	ret = ioremap_pages(addr, fmem_data.phys, fmem_data.size, type);
 	if (ret)
 		return ERR_PTR(ret);

@@ -1580,8 +1580,10 @@ int soc_dpcm_fe_dai_trigger(struct snd_pcm_substream *substream, int cmd)
 		break;
 	case SNDRV_PCM_TRIGGER_STOP:
 	case SNDRV_PCM_TRIGGER_SUSPEND:
-	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
 		fe->dpcm[stream].state = SND_SOC_DPCM_STATE_STOP;
+		break;
+	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
+		fe->dpcm[stream].state = SND_SOC_DPCM_STATE_PAUSED;
 		break;
 	}
 
@@ -1693,8 +1695,13 @@ static int soc_dpcm_be_dai_hw_free(struct snd_soc_pcm_runtime *fe, int stream)
 		if ((be->dpcm[stream].state != SND_SOC_DPCM_STATE_HW_PARAMS) &&
 		    (be->dpcm[stream].state != SND_SOC_DPCM_STATE_PREPARE) &&
 			(be->dpcm[stream].state != SND_SOC_DPCM_STATE_HW_FREE) &&
-			(be->dpcm[stream].state != SND_SOC_DPCM_STATE_PAUSED) &&
-		    (be->dpcm[stream].state != SND_SOC_DPCM_STATE_STOP))
+		    (be->dpcm[stream].state != SND_SOC_DPCM_STATE_PAUSED) &&
+		    (be->dpcm[stream].state != SND_SOC_DPCM_STATE_STOP) &&
+		    !((be->dpcm[stream].state == SND_SOC_DPCM_STATE_START) &&
+		      ((fe->dpcm[stream].state != SND_SOC_DPCM_STATE_START) &&
+			(fe->dpcm[stream].state != SND_SOC_DPCM_STATE_PAUSED) &&
+			(fe->dpcm[stream].state !=
+						SND_SOC_DPCM_STATE_SUSPEND))))
 			continue;
 
 		dev_dbg(be->dev, "dpcm: hw_free BE %s\n",
@@ -1928,7 +1935,7 @@ int soc_dpcm_runtime_update(struct snd_soc_dapm_widget *widget)
 	mutex_lock(&card->dpcm_mutex);
 
 	for (i = 0; i < card->num_rtd; i++) {
-		struct snd_soc_dapm_widget_list *list;
+		struct snd_soc_dapm_widget_list *list = NULL;
 		struct snd_soc_pcm_runtime *fe = &card->rtd[i];
 
 		
@@ -1951,6 +1958,8 @@ int soc_dpcm_runtime_update(struct snd_soc_dapm_widget *widget)
 			
 			
 			ret = paths;
+			if (list != NULL)
+				fe_path_put(&list);
 			goto out;
 		}
 
@@ -1981,6 +1990,8 @@ capture:
 			
 			
 			ret = paths;
+			if (list != NULL)
+				fe_path_put(&list);
 			goto out;
 		}
 
@@ -2346,7 +2357,7 @@ int soc_dpcm_fe_dai_open(struct snd_pcm_substream *fe_substream)
 {
 	struct snd_soc_pcm_runtime *fe = fe_substream->private_data;
 	struct snd_soc_dpcm_params *dpcm_params;
-	struct snd_soc_dapm_widget_list *list;
+	struct snd_soc_dapm_widget_list *list = NULL;
 	int ret;
 	int stream = fe_substream->stream;
 
@@ -2355,7 +2366,9 @@ int soc_dpcm_fe_dai_open(struct snd_pcm_substream *fe_substream)
 	if (fe_path_get(fe, stream, &list) <= 0) {
 		dev_warn(fe->dev, "asoc: %s no valid %s route from source to sink\n",
 			fe->dai_link->name, stream ? "capture" : "playback");
-			return -EINVAL;
+		if (list != NULL)
+			fe_path_put(&list);
+		return -EINVAL;
 	}
 
 	

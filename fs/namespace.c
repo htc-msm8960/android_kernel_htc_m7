@@ -2116,7 +2116,9 @@ static void __init init_mount_tree(void)
 	set_fs_pwd(current->fs, &root);
 	set_fs_root(current->fs, &root);
 }
-
+#ifdef CONFIG_HTC_FD_MONITOR
+void create_fd_list_entry(struct kobject *kobj);
+#endif
 void __init mnt_init(void)
 {
 	unsigned u;
@@ -2146,6 +2148,10 @@ void __init mnt_init(void)
 	fs_kobj = kobject_create_and_add("fs", NULL);
 	if (!fs_kobj)
 		printk(KERN_WARNING "%s: kobj create error\n", __func__);
+#ifdef CONFIG_HTC_FD_MONITOR
+	else
+		create_fd_list_entry(fs_kobj);
+#endif
 	init_rootfs();
 	init_mount_tree();
 }

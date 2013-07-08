@@ -25,7 +25,6 @@
 #include <linux/slab.h>
 
 #include <mach/htc_headset_mgr.h>
-#include <mach/headset_amp.h>
 
 #define DRIVER_NAME "HS_MGR"
 
@@ -649,9 +648,7 @@ static void mic_detect_work_func(struct work_struct *work)
 					   HS_JIFFIES_MIC_DETECT);
 		} else {
 			HS_LOG("MIC polling timeout (UNKNOWN/Floating MIC status)");
-			if (hs_mgr_notifier.key_int_enable)
-				hs_mgr_notifier.key_int_enable(1);
-
+			set_35mm_hw_state(0);			
 		}
 		return;
 	}
@@ -851,7 +848,6 @@ static void remove_detect_work_func(struct work_struct *work)
 #else
 	state &= ~(MASK_35MM_HEADSET | MASK_FM_ATTRIBUTE);
 	switch_set_state(&hi->sdev_h2w, state);
-	headset_amp_event(state);
 #endif
 	if (hi->one_wire_mode == 1) {
 		hi->one_wire_mode = 0;
@@ -1002,7 +998,6 @@ static void insert_detect_work_func(struct work_struct *work)
 	hi->hs_35mm_type = mic;
 	HS_LOG_TIME("Send uevent for state change, %d => %d", old_state, new_state);
 	switch_set_state(&hi->sdev_h2w, new_state);
-	headset_amp_event(new_state);
 	hpin_report++;
 
 
@@ -1224,8 +1219,10 @@ int hs_notify_key_irq(void)
 	if (hi->one_wire_mode == 1 && hs_hpin_stable() && hi->is_ext_insert) {
 		wake_lock_timeout(&hi->hs_wake_lock, HS_WAKE_LOCK_TIMEOUT);
 		key_code = hs_mgr_notifier.hs_1wire_read_key();
-		if (key_code < 0)
+		if (key_code < 0) {
+			wake_unlock(&hi->hs_wake_lock);
 			return 1;
+		}
 		if (key_code == 2 || key_code == 3 || pre_key == 2 || pre_key == 3) {
 			queue_delayed_work(button_wq, &button_1wire_work, HS_JIFFIES_1WIRE_BUTTON_SHORT);
 			HS_LOG("Use short delay");
@@ -1252,8 +1249,8 @@ int hs_notify_key_irq(void)
 	}
 
 	
-	if ((hi->hs_35mm_type == HEADSET_NO_MIC ||
-		   hi->hs_35mm_type == HEADSET_UNKNOWN_MIC) && time_before_eq(jiffies, hi->hpin_jiffies + 10 * HZ)) {
+	if ((hi->hs_35mm_type == HEADSET_NO_MIC || hi->hs_35mm_type == HEADSET_UNKNOWN_MIC) &&
+		time_before_eq(jiffies, hi->hpin_jiffies + 10 * HZ)) {
 		HS_LOG("IGNORE key IRQ (Unstable HPIN)");
 		
 		update_mic_status(HS_DEF_MIC_DETECT_COUNT);

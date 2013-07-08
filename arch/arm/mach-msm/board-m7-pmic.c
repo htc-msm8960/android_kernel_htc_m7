@@ -230,7 +230,7 @@ static int led_power_LPM(int on)
 		   return rc;
 		}
 		pr_info("[LED] %s: leave LMP mode\n", __func__);
-		msleep(10);
+		usleep(10);
 	}
 	mutex_unlock(&led_lock);
 	return rc;
@@ -510,7 +510,7 @@ pm8921_chg_pdata __devinitdata = {
 	.max_voltage		= MAX_VOLTAGE_MV,
 	.min_voltage		= 3200,
 	.resume_voltage_delta	= 50,
-	.term_current		= 50,
+	.term_current		= 75,
 	.cool_temp		= 0,
 	.warm_temp		= 48,
 	.temp_check_period	= 1,
@@ -528,6 +528,7 @@ pm8921_chg_pdata __devinitdata = {
 	.cold_thr = PM_SMBC_BATT_TEMP_COLD_THR__HIGH,
 	.hot_thr = PM_SMBC_BATT_TEMP_HOT_THR__LOW,
 	.ext_usb = &smb_ext_chg,
+	.rconn_mohm		= 10, 
 };
 
 static struct pm8xxx_ccadc_platform_data
@@ -545,6 +546,8 @@ pm8921_bms_pdata __devinitdata = {
 	.rconn_mohm		= 0,
 	.level_ocv_update_stop_begin	= 10,
 	.level_ocv_update_stop_end		= 20,
+	.criteria_sw_est_ocv			= 86400000, 
+	.rconn_mohm_sw_est_ocv		= 10,
 };
 
 static int __init check_dq_setup(char *str)
@@ -567,7 +570,7 @@ __setup("androidboot.dq=", check_dq_setup);
 static struct pm8xxx_vibrator_platform_data pm8xxx_vib_pdata = {
 	.initial_vibrate_ms = 0,
 	.max_timeout_ms = 15000,
-	.level_mV = 1700, // 2700
+	.level_mV = 2700,
 	.threshold = 500,
 	};
 

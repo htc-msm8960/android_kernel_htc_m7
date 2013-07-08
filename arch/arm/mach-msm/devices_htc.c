@@ -14,6 +14,7 @@
  * GNU General Public License for more details.
  */
 #include <mach/board.h>
+#include <mach/board_htc.h>
 #include <asm/setup.h>
 #include <linux/mtd/nand.h>
 #include <linux/module.h>
@@ -289,33 +290,38 @@ char *board_get_mfg_sleep_gpio_table(void)
 EXPORT_SYMBOL(board_get_mfg_sleep_gpio_table);
 static int mfg_mode;
 static int fullramdump_flag;
+static int recovery_9k_ramdump;
 int __init board_mfg_mode_init(char *s)
 {
 	if (!strcmp(s, "normal"))
-		mfg_mode = 0;
+		mfg_mode = MFG_MODE_NORMAL ;
 	else if (!strcmp(s, "factory2"))
-		mfg_mode = 1;
+		mfg_mode = MFG_MODE_FACTORY2;
 	else if (!strcmp(s, "recovery"))
-		mfg_mode = 2;
+		mfg_mode = MFG_MODE_RECOVERY;
 	else if (!strcmp(s, "charge"))
-		mfg_mode = 3;
+		mfg_mode = MFG_MODE_CHARGE;
 	else if (!strcmp(s, "power_test"))
-		mfg_mode = 4;
+		mfg_mode = MFG_MODE_POWER_TEST;
 	else if (!strcmp(s, "offmode_charging"))
-		mfg_mode = 5;
+		mfg_mode = MFG_MODE_OFFMODE_CHARGING;
 	else if (!strcmp(s, "mfgkernel:diag58"))
-		mfg_mode = 6;
+		mfg_mode = MFG_MODE_MFGKERNEL_DIAG58;
 	else if (!strcmp(s, "gift_mode"))
-		mfg_mode = 7;
+		mfg_mode = MFG_MODE_GIFT_MODE;
 	else if (!strcmp(s, "mfgkernel"))
-		mfg_mode = 8;
+		mfg_mode = MFG_MODE_MFGKERNEL;
 	else if (!strcmp(s, "mini") || !strcmp(s, "skip_9k_mini")) {
-		mfg_mode = 9;
+		mfg_mode = MFG_MODE_MINI;
 		fullramdump_flag = 0;
 	} else if (!strcmp(s, "mini:1gdump")) {
-		mfg_mode = 9;
+		mfg_mode = MFG_MODE_MINI;
 		fullramdump_flag = 1;
 	}
+
+	if (!strncmp(s, "9kramdump", strlen("9kramdump")))
+		recovery_9k_ramdump = 1 ;
+
 	return 1;
 }
 __setup("androidboot.mode=", board_mfg_mode_init);
@@ -328,6 +334,10 @@ int board_mfg_mode(void)
 
 EXPORT_SYMBOL(board_mfg_mode);
 
+int is_9kramdump_mode(void)
+{
+	return recovery_9k_ramdump;
+}
 
 int board_fullramdump_flag(void)
 {
@@ -461,6 +471,22 @@ unsigned long get_kernel_flag(void)
 	return kernel_flag;
 }
 
+static unsigned long debug_flag = 0;
+int __init debug_flag_init(char *s)
+{
+	int ret;
+	ret = strict_strtoul(s, 16, &debug_flag);
+	if (ret != 0)
+		pr_err("%s: debug flag cannot be parsed from `%s'\r\n", __func__, s);
+	return 1;
+}
+__setup("debugflag=", debug_flag_init);
+
+unsigned long get_debug_flag(void)
+{
+	return debug_flag;
+}
+
 static char *sku_color_tag = NULL;
 static int __init board_set_qwerty_color_tag(char *get_sku_color)
 {
@@ -506,10 +532,23 @@ int __init board_ats_init(char *s)
 }
 __setup("ats=", board_ats_init);
 
+#define RAW_SN_LEN	4
+
+static int tamper_sf;
 static char android_serialno[16] = {0};
 static int __init board_serialno_setup(char *serialno)
 {
-	pr_info("%s: set serial no to %s\r\n", __func__, serialno);
+	if (tamper_sf) {
+		int i;
+		char hashed_serialno[16] = {0};
+
+		strncpy(hashed_serialno, serialno, sizeof(hashed_serialno)/sizeof(hashed_serialno[0]) - 1);
+		for (i = strlen(hashed_serialno) - 1; i >= RAW_SN_LEN; i--)
+			hashed_serialno[i - RAW_SN_LEN] = '*';
+		pr_info("%s: set serial no to %s\r\n", __func__, hashed_serialno);
+	} else {
+		pr_info("%s: set serial no to %s\r\n", __func__, serialno);
+	}
 	strncpy(android_serialno, serialno, sizeof(android_serialno)/sizeof(android_serialno[0]) - 1);
 	return 1;
 }
@@ -527,7 +566,6 @@ int board_get_usb_ats(void)
 }
 EXPORT_SYMBOL(board_get_usb_ats);
 
-static int tamper_sf;
 int __init check_tamper_sf(char *s)
 {
 	tamper_sf = simple_strtoul(s, 0, 10);

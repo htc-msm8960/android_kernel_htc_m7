@@ -695,11 +695,19 @@ static void check_stack_usage(void)
 static inline void check_stack_usage(void) {}
 #endif
 
+#ifdef CONFIG_HTC_FD_MONITOR
+extern int clean_fd_list(const int cur_pid, const int callfrom);
+#endif
+
 void do_exit(long code)
 {
 	struct task_struct *tsk = current;
 	int group_dead;
 
+#ifdef CONFIG_HTC_FD_MONITOR
+	if(!(tsk->flags & PF_KTHREAD) && tsk->tgid == tsk->pid)
+		clean_fd_list(tsk->tgid, 0);
+#endif
 	profile_task_exit(tsk);
 
 	WARN_ON(blk_needs_flush_plug(tsk));
@@ -790,7 +798,15 @@ void do_exit(long code)
 	if (unlikely(current->pi_state_cache))
 		kfree(current->pi_state_cache);
 #endif
-	debug_check_no_locks_held(tsk);
+	/*
+	 * Make sure we are holding no locks:
+	 */
+	debug_check_no_locks_held();
+	/*
+	 * We can do this unlocked here. The futex code uses this flag
+	 * just to verify whether the pi state cleanup has been done
+	 * or not. In the worst case it loops once more.
+	 */
 	tsk->flags |= PF_EXITPIDONE;
 
 	if (tsk->io_context)

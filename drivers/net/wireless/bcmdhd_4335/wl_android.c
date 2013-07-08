@@ -484,7 +484,7 @@ static int wl_android_scansuppress(struct net_device *net, char *command, int to
 extern s32 wl_cfg80211_scan_abort(struct net_device *ndev);
 static int wl_android_scanabort(struct net_device *net, char *command, int total_len)
 {
-
+	wldev_set_scanabort(net);
     wl_cfg80211_scan_abort(net);
     return 0;
 }
@@ -829,28 +829,28 @@ static int wl_android_set_tx_tracking(struct net_device *dev, char *command, int
        	wldev_ioctl(dev, WLC_SET_VAR, &iovbuf, sizeof(iovbuf), 1);
 		old_tx_stat_chk_num = tx_stat_chk_num;
 	} else 
-		printf("tx_stat_chk_num duplicate, ignore!\n");
+		DHD_INFO(("tx_stat_chk_num duplicate, ignore!\n"));
 
 	if (tx_stat_chk != old_tx_stat_chk) {
 		bcm_mkiovar("tx_stat_chk", (char *)&tx_stat_chk, 4, iovbuf, sizeof(iovbuf));
 		wldev_ioctl(dev, WLC_SET_VAR, &iovbuf, sizeof(iovbuf), 1);
 		old_tx_stat_chk = tx_stat_chk;
 	} else 
-		printf("tx_stat_chk duplicate, ignore!\n");
+		DHD_INFO(("tx_stat_chk duplicate, ignore!\n"));
 
 	if (tx_stat_chk_ratio != old_tx_stat_chk_ratio) {
 		bcm_mkiovar("tx_stat_chk_ratio", (char *)&tx_stat_chk_ratio, 4, iovbuf, sizeof(iovbuf));
 		wldev_ioctl(dev, WLC_SET_VAR, &iovbuf, sizeof(iovbuf), 1);
 		old_tx_stat_chk_ratio = tx_stat_chk_ratio;
 	} else 
-		printf("tx_stat_chk_ratio duplicate, ignore!\n");
+		DHD_INFO(("tx_stat_chk_ratio duplicate, ignore!\n"));
 
 	if (tx_stat_chk_prd != old_tx_stat_chk_prd) {
 		bcm_mkiovar("tx_stat_chk_prd", (char *)&tx_stat_chk_prd, 4, iovbuf, sizeof(iovbuf));
 		wldev_ioctl(dev, WLC_SET_VAR, &iovbuf, sizeof(iovbuf), 1);
 		old_tx_stat_chk_prd = tx_stat_chk_prd;
 	} else 
-		printf("tx_stat_chk_prd duplicate, ignore!\n");
+		DHD_INFO(("tx_stat_chk_prd duplicate, ignore!\n"));
 
 
         return bytes_written;
@@ -1242,6 +1242,10 @@ int wl_android_black_list_match(char *mac)
 	return 0;
 }
 
+void wl_cfg80211_send_priv_event(struct net_device *dev, char *flag);
+static int assoc_count_buff = 0;
+extern int sta_event_sent;
+
 static int
 wl_android_get_assoc_sta_list(struct net_device *dev, char *buf, int len)
 {
@@ -1274,6 +1278,16 @@ wl_android_get_assoc_sta_list(struct net_device *dev, char *buf, int len)
 		maclist->count = 0;
 	} else
 		printf("get assoc count %d, len %d\n", maclist->count, len);
+
+    
+    if (!sta_event_sent && assoc_count_buff && (assoc_count_buff != maclist->count)) {
+        wl_cfg80211_send_priv_event(dev, "STA_LEAVE");
+    }
+
+    assoc_count_buff = maclist->count;
+    sta_event_sent = 0;
+    
+
 
 	memset(buf, 0x0, len);
 	memcpy(buf, mac_lst, len);
@@ -3914,6 +3928,7 @@ int wifi_set_power(int on, unsigned long msec)
 	}
 	
 	if (!on) {
+        printf("Check module_insert(%d) before Setting wifi Power off\n", module_insert);
 		if (module_insert && gInstance && gInstance->func[0] && gInstance->func[0]->card) {
 			mmc = gInstance->func[0]->card->host;
 			host = (void *)mmc->private;

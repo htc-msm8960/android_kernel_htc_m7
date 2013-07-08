@@ -40,24 +40,23 @@
 #include "avs.h"
 
 #define CPU_FOOT_PRINT_MAGIC				0xACBDFE00
-#define CPU_FOOT_PRINT_BASE_CPU0_VIRT		(MSM_KERNEL_FOOTPRINT_BASE + 0x0)
 static void set_acpuclk_foot_print(unsigned cpu, unsigned state)
 {
-	unsigned *status = (unsigned *)(CPU_FOOT_PRINT_BASE_CPU0_VIRT + 0x6C) + cpu;
+	unsigned *status = (unsigned *)(CPU_FOOT_PRINT_BASE + 0x6C) + cpu;
 	*status = (CPU_FOOT_PRINT_MAGIC | state);
 	mb();
 }
 
 static void set_acpuclk_cpu_freq_foot_print(unsigned cpu, unsigned khz)
 {
-	unsigned *status = (unsigned *)(CPU_FOOT_PRINT_BASE_CPU0_VIRT + 0x58) + cpu;
+	unsigned *status = (unsigned *)(CPU_FOOT_PRINT_BASE + 0x58) + cpu;
 	*status = khz;
 	mb();
 }
 
 static void set_acpuclk_L2_freq_foot_print(unsigned khz)
 {
-	unsigned *status = (unsigned *)(CPU_FOOT_PRINT_BASE_CPU0_VIRT + 0x68);
+	unsigned *status = (unsigned *)(CPU_FOOT_PRINT_BASE + 0x68);
 	*status = khz;
 	mb();
 }
@@ -570,6 +569,15 @@ static struct acpuclk_data acpuclk_krait_data = {
 	.get_rate = acpuclk_krait_get_rate,
 };
 
+#ifdef CONFIG_APQ8064_ONLY 
+unsigned long acpuclk_krait_power_collapse(void)
+{
+	unsigned long rate = acpuclk_get_rate(smp_processor_id());
+	acpuclk_krait_set_rate(smp_processor_id(), 384000, SETRATE_PC);
+	return rate;
+}
+#endif
+
 static void __init hfpll_init(struct scalable *sc,
 			      const struct core_speed *tgt_s)
 {
@@ -604,6 +612,7 @@ static int __cpuinit rpm_regulator_init(struct scalable *sc, enum vregs vreg,
 
 	sc->vreg[vreg].rpm_reg = rpm_regulator_get(drv.dev,
 						   sc->vreg[vreg].name);
+
 	if (IS_ERR(sc->vreg[vreg].rpm_reg)) {
 		ret = PTR_ERR(sc->vreg[vreg].rpm_reg);
 		dev_err(drv.dev, "rpm_regulator_get(%s) failed (%d)\n",
@@ -988,7 +997,6 @@ static void krait_apply_vmin(struct acpu_level *tbl)
 }
 
 uint32_t global_speed_bin;
-
 int __init get_speed_bin(u32 pte_efuse)
 {
 	uint32_t speed_bin;

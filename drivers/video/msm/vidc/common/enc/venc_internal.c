@@ -1622,31 +1622,51 @@ u32 vid_enc_free_buffer(struct video_client_ctx *client_ctx,
 {
 	enum vcd_buffer_type buffer_vcd = VCD_BUFFER_INPUT;
 	enum buffer_dir dir_buffer = BUFFER_TYPE_INPUT;
-	u32 vcd_status = VCD_ERR_FAIL;
-	unsigned long kernel_vaddr;
+	unsigned long kernel_vaddr = 0;
+	unsigned long user_vaddr = 0;
+	unsigned long phy_addr = 0;
+	int pmem_fd = 0;
+	struct file *file;
+	s32 buffer_index = -1;
 
-	if (!client_ctx || !buffer_info)
+	if (!client_ctx || !buffer_info) {
+		ERR("%s(): wrong buffer, 0x%x, 0x%x", __func__,
+			(u32)client_ctx, (u32)buffer_info);
 		return false;
+	}
 
 	if (buffer == VEN_BUFFER_TYPE_OUTPUT) {
 		dir_buffer = BUFFER_TYPE_OUTPUT;
 		buffer_vcd = VCD_BUFFER_OUTPUT;
 	}
+
+	user_vaddr = (unsigned long)buffer_info->pbuffer;
+	if (!vidc_lookup_addr_table(client_ctx, dir_buffer,
+				true, &user_vaddr, &kernel_vaddr,
+				&phy_addr, &pmem_fd, &file,
+				&buffer_index)) {
+		ERR("%s(): WNG: user_virt_addr = %p has not been set",
+		    __func__, buffer_info->pbuffer);
+		return true;
+	}
+
+	if (vcd_free_buffer(client_ctx->vcd_handle, buffer_vcd,
+				(u8 *)kernel_vaddr)) {
+		ERR("%s(): WNG: vcd_free_buffer(0x%x, %u, 0x%x) failed.",
+		    __func__, (u32)client_ctx->vcd_handle,
+		    (u32)buffer_vcd, (u32)kernel_vaddr);
+	}
+
 	/*If buffer NOT set, ignore */
 	if (!vidc_delete_addr_table(client_ctx, dir_buffer,
 				(unsigned long)buffer_info->pbuffer,
 				&kernel_vaddr)) {
-		DBG("%s() : user_virt_addr = %p has not been set.",
+		ERR("%s(): WNG: user_virt_addr = %p has not been set.",
 		    __func__, buffer_info->pbuffer);
 		return true;
 	}
-	vcd_status = vcd_free_buffer(client_ctx->vcd_handle, buffer_vcd,
-					 (u8 *)kernel_vaddr);
 
-	if (!vcd_status)
-		return true;
-	else
-		return false;
+	return true;
 }
 
 u32 vid_enc_encode_frame(struct video_client_ctx *client_ctx,
@@ -1699,7 +1719,7 @@ u32 vid_enc_encode_frame(struct video_client_ctx *client_ctx,
 				msm_ion_do_cache_op(
 				client_ctx->user_ion_client,
 				buff_handle,
-				(unsigned long *) vcd_input_buffer.virtual,
+				(unsigned long *) NULL,
 				(unsigned long) vcd_input_buffer.data_len,
 				ION_IOC_CLEAN_CACHES);
 			}
@@ -2001,4 +2021,28 @@ u32 vid_enc_get_recon_buffer_size(struct video_client_ctx *client_ctx,
 				__func__, vcd_status);
 			return false;
 		}
+}
+
+u32 vid_enc_get_curr_perf_level(struct video_client_ctx *client_ctx,
+		u32 *curr_perf_level)
+{
+	struct vcd_property_hdr vcd_property_hdr;
+	u32 vcd_status = VCD_ERR_FAIL;
+	u32 curr_perf_lvl = 0;
+
+	if (!client_ctx)
+		return false;
+
+	vcd_property_hdr.prop_id = VCD_I_GET_CURR_PERF_LEVEL;
+	vcd_property_hdr.sz = sizeof(u32);
+	vcd_status = vcd_get_property(client_ctx->vcd_handle,
+					&vcd_property_hdr, &curr_perf_lvl);
+	if (vcd_status) {
+		ERR("VCD_I_GET_PERF_LEVEL failed!!");
+		*curr_perf_level = 0;
+		return false;
+	} else {
+		*curr_perf_level = curr_perf_lvl;
+		return true;
+	}
 }

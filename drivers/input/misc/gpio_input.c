@@ -34,9 +34,6 @@
 #define PWRKEYLEDOFF_DELAY 0
 #define HW_RESET_REASON 0x44332211
 
-#ifdef CONFIG_M7_CIR_ALWAYS
-extern int power_key_pressed;
-#endif
 static int power_key_led_requested;
 static int pre_power_key_status;
 static int pre_power_key_led_status;
@@ -51,9 +48,7 @@ struct wake_lock key_reset_clr_wake_lock;
 #ifdef CONFIG_MFD_MAX8957
 static struct workqueue_struct *ki_queue;
 #endif
-
 static int power_key_intr_flag;
-
 static DEFINE_MUTEX(wakeup_mutex);
 static unsigned char wakeup_bitmask;
 static unsigned char set_wakeup;
@@ -98,6 +93,7 @@ static ssize_t vol_wakeup_show(struct device *dev,
 static DEVICE_ATTR(vol_wakeup, 0664, vol_wakeup_show, vol_wakeup_store);
 
 
+#ifdef CONFIG_PWRKEY_STATUS_API
 static uint8_t power_key_state;
 static spinlock_t power_key_state_lock;
 
@@ -140,13 +136,13 @@ static void handle_power_key_state(unsigned int code, int value)
 {
 	int ret = 0;
 	if (code == KEY_POWER && value == 1) {
-	    KEY_LOGI("[PWR][STATE]try to schedule power key pressed due\n");
-	    ret = schedule_delayed_work(&power_key_state_disable_work, PWRKEY_PRESS_DUE);
+		KEY_LOGI("[PWR][STATE]try to schedule power key pressed due\n");
+		ret = schedule_delayed_work(&power_key_state_disable_work, PWRKEY_PRESS_DUE);
 		if (!ret) {
 			KEY_LOGI("[PWR][STATE]Schedule power key pressed due failed, seems already have one, try to cancel...\n");
 			ret = __cancel_delayed_work(&power_key_state_disable_work);
 			if (!ret) {
-			    setPowerKeyState(1);
+				setPowerKeyState(1);
 				if (schedule_delayed_work(&power_key_state_disable_work, PWRKEY_PRESS_DUE)) {
 					KEY_LOGI("[PWR][STATE]Re-schedule power key pressed due SCCUESS.\n");
 					KEY_LOGI("[PWR][STATE] start count for power key pressed due\n");
@@ -154,7 +150,7 @@ static void handle_power_key_state(unsigned int code, int value)
 				} else
 					KEY_LOGI("[PWR][STATE]Re-schedule power key pressed due FAILED, reason unknown, give up.\n");
 			} else {
-			    KEY_LOGI("[PWR][STATE]Cancel scheduled power key due success, now re-schedule.\n");
+				KEY_LOGI("[PWR][STATE]Cancel scheduled power key due success, now re-schedule.\n");
 				if (schedule_delayed_work(&power_key_state_disable_work, PWRKEY_PRESS_DUE)) {
 					KEY_LOGI("[PWR][STATE]Re-schedule power key pressed due SCCUESS.\n");
 					KEY_LOGI("[PWR][STATE] start count for power key pressed due\n");
@@ -168,6 +164,8 @@ static void handle_power_key_state(unsigned int code, int value)
 		}
 	}
 }
+
+#endif
 
 #ifdef CONFIG_MFD_MAX8957
 static struct workqueue_struct *ki_queue;
@@ -259,13 +257,14 @@ static int set_hw_reason(int reason)
 #include <mach/restart.h>
 int set_restart_to_ramdump(const char *msg);
 static void clear_hw_reset(void);
+static int is_rrm1_mode(void);
 
 static void power_key_restart_work_func(struct work_struct *dummy)
 {
 	int pocket_mode = power_key_check_in_pocket();
 
 	printk(KERN_INFO "%s: power_key_check_in_pocket = %d\n", __func__, pocket_mode);
-	if (!pocket_mode && pre_power_key_led_status == 1) {
+	if (!pocket_mode && pre_power_key_led_status == 1 && !is_rrm1_mode()) {
 		
 		set_hw_reason(0);
 		clear_hw_reset();
@@ -287,7 +286,10 @@ static void power_key_led_on_work_func(struct work_struct *dummy)
 #endif
 		KEY_LOGI("[PWR] change power key led on\n");
 		pm8xxx_led_current_set_for_key(1);
-		set_hw_reason(HW_RESET_REASON);
+#ifdef CONFIG_POWER_KEY_CLR_RESET
+		if(!is_rrm1_mode())
+#endif
+			set_hw_reason(HW_RESET_REASON);
 		KEY_LOGI("[PWR] Show Blocked State -- long press power key\n");
 		show_state_filter(TASK_UNINTERRUPTIBLE);
 	}
@@ -311,7 +313,10 @@ static void power_key_led_off_work_func(struct work_struct *dummy)
 		KEY_LOGI("[PWR] change power key led off\n");
 		pm8xxx_led_current_set_for_key(0);
 		pre_power_key_led_status = 0;
-		set_hw_reason(0);
+#ifdef CONFIG_POWER_KEY_CLR_RESET
+		if(!is_rrm1_mode())
+#endif
+			set_hw_reason(0);
 	}
 }
 static DECLARE_DELAYED_WORK(power_key_led_off_work, power_key_led_off_work_func);
@@ -343,11 +348,17 @@ static void power_key_check_reset_work_func(struct work_struct *dummy)
 	int pocket_mode = 0;
 	KEY_LOGI("[PWR] %s\n", __func__);
 	if ((aa->clear_hw_reset)) {
-		
-		pocket_mode = power_key_check_in_pocket();
-		if (pocket_mode) {
-			printk(KERN_INFO "[KEY] power_key_check_in_pocket = %d\n", pocket_mode);
+		if (aa->info.rrm1_mode) {
+			printk(KERN_INFO "[KEY] Power key check in Lab Test RRM1 mode.\n");
 			aa->clear_hw_reset();
+		}
+		else {
+			
+			pocket_mode = power_key_check_in_pocket();
+			if (pocket_mode) {
+				printk(KERN_INFO "[KEY] power_key_check_in_pocket = %d\n", pocket_mode);
+				aa->clear_hw_reset();
+			}
 		}
 	}
 	else {
@@ -368,6 +379,10 @@ static void clear_hw_reset(void)
 	else {
 		KEY_LOGI("[PWR] No reset  clear function\n");
 	}
+}
+static int is_rrm1_mode(void)
+{
+	return gis->info.rrm1_mode;
 }
 
 static void power_key_clr_check_work_func(struct work_struct *dummy)
@@ -484,23 +499,15 @@ static enum hrtimer_restart gpio_event_input_timer_func(struct hrtimer *timer)
 			KEY_LOGI("gpio_keys_scan_keys: key %x-%x, %d (%d) "
 				"changed to %d\n", ds->info->type,
 				key_entry->code, i, key_entry->gpio, pressed);
-#ifdef CONFIG_M7_CIR_ALWAYS
-		if(key_entry->code == KEY_POWER){
-		    if(pressed){
-			power_key_pressed = 1;
-			KEY_LOGI("power_key_pressed = %d\n", power_key_pressed);
-		    }
-
-		}
-#endif
-
 #ifdef CONFIG_POWER_KEY_LED
 		handle_power_key_led(key_entry->code, pressed);
 #endif
 #ifdef CONFIG_POWER_KEY_CLR_RESET
 		handle_power_key_reset(key_entry->code, pressed);
 #endif
+#ifdef CONFIG_PWRKEY_STATUS_API
 		handle_power_key_state(key_entry->code, pressed);
+#endif
 
 		input_event(ds->input_devs->dev[key_entry->dev], ds->info->type,
 			    key_entry->code, pressed);
@@ -556,7 +563,7 @@ void keypad_report_keycode(struct gpio_key_state *ks)
 			!(ds->info->flags & GPIOEDF_ACTIVE_HIGH);
 
 	if (key_entry->code == KEY_POWER) {
-		if (pressed)		    
+		if (pressed)
 			wake_lock(&ds->key_pressed_wake_lock);
 		else
 			wake_unlock(&ds->key_pressed_wake_lock);
@@ -694,9 +701,9 @@ static int gpio_event_input_request_irqs(struct gpio_input_state *ds)
 		} else
 			enable_irq_wake(irq);
 	}
-
+#ifdef CONFIG_PWRKEY_STATUS_API
 	init_power_key_api();
-
+#endif
 	return 0;
 
 	for (i = ds->info->keymap_size - 1; i >= 0; i--) {
@@ -747,6 +754,12 @@ int gpio_event_input_func(struct gpio_event_input_devs *input_devs,
 	}
 
 	if (func == GPIO_EVENT_FUNC_INIT) {
+#ifdef CONFIG_POWER_KEY_CLR_RESET
+		if (di->info.rrm1_mode && di->clear_hw_reset) {
+			printk(KERN_INFO "[KEY] First clear reset in Lab Test RRM1 mode.\n");
+			di->clear_hw_reset();
+		}
+#endif
 		if (ktime_to_ns(di->poll_time) <= 0)
 			di->poll_time = ktime_set(0, 20 * NSEC_PER_MSEC);
 

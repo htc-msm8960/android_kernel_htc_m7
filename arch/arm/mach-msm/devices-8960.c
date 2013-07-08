@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -917,6 +917,7 @@ struct msm_vidc_platform_data vidc_platform_data = {
 	.disable_fullhd = 0,
 	.cont_mode_dpb_count = 18,
 	.fw_addr = 0x9fe00000,
+	.enable_sec_metadata = 0,
 };
 
 struct platform_device msm_device_vidc = {
@@ -2207,6 +2208,11 @@ struct platform_device msm_multi_ch_pcm = {
 	.id	= -1,
 };
 
+struct platform_device msm_lowlatency_pcm = {
+	.name	= "msm-lowlatency-pcm-dsp",
+	.id	= -1,
+};
+
 struct platform_device msm_pcm_routing = {
 	.name	= "msm-pcm-routing",
 	.id	= -1,
@@ -2299,11 +2305,19 @@ struct msm_dai_auxpcm_pdata auxpcm_pdata = {
 	.mode_16k = {
 		.mode = AFE_PCM_CFG_MODE_PCM,
 		.sync = AFE_PCM_CFG_SYNC_INT,
+#ifdef CONFIG_BT_WBS_BRCM
+		.frame = AFE_PCM_CFG_FRM_128BPF,
+#else
 		.frame = AFE_PCM_CFG_FRM_256BPF,
+#endif
 		.quant = AFE_PCM_CFG_QUANT_LINEAR_NOPAD,
 		.slot = 0,
 		.data = AFE_PCM_CFG_CDATAOE_MASTER,
+#ifdef CONFIG_BT_WBS_BRCM
+		.pcm_clk_rate = 2048000,
+#else
 		.pcm_clk_rate = 4096000,
+#endif
 	}
 };
 

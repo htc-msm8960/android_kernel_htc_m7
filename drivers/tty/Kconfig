@@ -342,6 +342,12 @@ config SMUX_CTL
 	help
 	  Support for SMUX control driver on top of serial MUX.
 
+config SMUX_WORKAROUND_QSC_WAKEUP_ACK
+	bool "Workaround for no QSC wakeup ack receiving."
+	depends on N_SMUX && QSC_MODEM
+	help
+	  Workaround for no QSC wakeup ack receiving.
+
 config TRACE_ROUTER
 	tristate "Trace data router for MIPI P1149.7 cJTAG standard"
 	depends on TRACE_SINK

@@ -321,7 +321,7 @@ static long tfa9887_ioctl(struct file *file, unsigned int cmd,
 	case TPA9887_WRITE_CONFIG:
 		pr_debug("%s: TPA9887_WRITE_CONFIG\n", __func__);
 		rc = copy_from_user(reg_value, argp, sizeof(reg_value));
-		if (rc < 0) {
+		if (rc) {
 			pr_err("%s: copy from user failed.\n", __func__);
 			goto err;
 		}
@@ -335,7 +335,7 @@ static long tfa9887_ioctl(struct file *file, unsigned int cmd,
 	case TPA9887_READ_CONFIG:
 		pr_debug("%s: TPA9887_READ_CONFIG\n", __func__);
 		rc = copy_from_user(reg_value, argp, sizeof(reg_value));;
-		if (rc < 0) {
+		if (rc) {
 			pr_err("%s: copy from user failed.\n", __func__);
 			goto err;
 		}
@@ -345,7 +345,7 @@ static long tfa9887_ioctl(struct file *file, unsigned int cmd,
 		tfa9887_i2c_read(addr, len);
 
 		rc = copy_to_user(argp, reg_value, sizeof(reg_value));
-		if (rc < 0) {
+		if (rc) {
 			pr_err("%s: copy to user failed.\n", __func__);
 			goto err;
 		}
@@ -354,7 +354,7 @@ static long tfa9887_ioctl(struct file *file, unsigned int cmd,
 	case TPA9887_WRITE_L_CONFIG:
 		pr_debug("%s: TPA9887_WRITE_CONFIG_L\n", __func__);
 		rc = copy_from_user(reg_value, argp, sizeof(reg_value));
-		if (rc < 0) {
+		if (rc) {
 			pr_err("%s: copy from user failed.\n", __func__);
 			goto err;
 		}
@@ -366,7 +366,7 @@ static long tfa9887_ioctl(struct file *file, unsigned int cmd,
 	case TPA9887_READ_L_CONFIG:
 		pr_debug("%s: TPA9887_READ_CONFIG_L\n", __func__);
 		rc = copy_from_user(reg_value, argp, sizeof(reg_value));;
-		if (rc < 0) {
+		if (rc) {
 			pr_err("%s: copy from user failed.\n", __func__);
 			goto err;
 		}
@@ -376,7 +376,7 @@ static long tfa9887_ioctl(struct file *file, unsigned int cmd,
 		tfa9887_l_read(addr, len);
 
 		rc = copy_to_user(argp, reg_value, sizeof(reg_value));
-		if (rc < 0) {
+		if (rc) {
 			pr_err("%s: copy to user failed.\n", __func__);
 			goto err;
 		}
@@ -385,7 +385,7 @@ static long tfa9887_ioctl(struct file *file, unsigned int cmd,
 	case TPA9887_ENABLE_DSP:
 		pr_info("%s: TPA9887_ENABLE_DSP\n", __func__);
 		rc = copy_from_user(reg_value, argp, sizeof(reg_value));;
-		if (rc < 0) {
+		if (rc) {
 			pr_err("%s: copy from user failed.\n", __func__);
 			goto err;
 		}
@@ -395,7 +395,7 @@ static long tfa9887_ioctl(struct file *file, unsigned int cmd,
 		break;
 	case TPA9887_KERNEL_LOCK:
 		rc = copy_from_user(reg_value, argp, sizeof(reg_value));;
-		if (rc < 0) {
+		if (rc) {
 		   pr_err("%s: copy from user failed.\n", __func__);
 		   goto err;
 		}

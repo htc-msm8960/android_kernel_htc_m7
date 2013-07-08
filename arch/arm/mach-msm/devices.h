@@ -222,6 +222,7 @@ extern struct platform_device msm_device_vidc_720p;
 
 extern struct platform_device msm_pcm;
 extern struct platform_device msm_multi_ch_pcm;
+extern struct platform_device msm_lowlatency_pcm;
 extern struct platform_device msm_pcm_routing;
 extern struct platform_device msm_cpudai0;
 extern struct platform_device msm_cpudai1;
@@ -288,6 +289,7 @@ extern struct platform_device apq_voip;
 extern struct platform_device apq_lpa_pcm;
 extern struct platform_device apq_compr_dsp;
 extern struct platform_device apq_multi_ch_pcm;
+extern struct platform_device apq_lowlatency_pcm;
 extern struct platform_device apq_pcm_hostless;
 extern struct platform_device apq_cpudai_afe_01_rx;
 extern struct platform_device apq_cpudai_afe_01_tx;
@@ -448,3 +450,9 @@ extern struct platform_device msm8x60_device_acpuclk;
 extern struct platform_device msm8960_device_acpuclk;
 extern struct platform_device msm8064_device_acpuclk;
 extern struct platform_device msm9615_device_acpuclk;
+#ifdef CONFIG_PERFLOCK
+extern struct platform_device msm8064_device_perf_lock;
+extern struct platform_device msm8960_device_perf_lock;
+extern struct platform_device msm8930_device_perf_lock;
+extern struct platform_device msm8930aa_device_perf_lock;
+#endif

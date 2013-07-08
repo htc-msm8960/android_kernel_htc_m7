@@ -101,6 +101,7 @@ int wldev_get_ap_status(struct net_device *dev);
 int wldev_set_apsta(struct net_device *dev, bool enable);
 void wldev_restart_ap(struct net_device *dev);
 int wldev_set_scansuppress(struct net_device *dev,int enable);
+void wldev_set_scanabort(struct net_device *dev);
 #endif
 
 #ifdef BRCM_WPSAP

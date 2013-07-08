@@ -111,7 +111,7 @@
 #define HDMI_VFRMT_MAX			59
 #define HDMI_VFRMT_FORCE_32BIT		0x7FFFFFFF
 
-struct msm_hdmi_mode_timing_info {
+struct hdmi_disp_mode_timing_type {
 	uint32	video_format;
 	uint32	active_h;
 	uint32	front_porch_h;
@@ -183,7 +183,7 @@ struct msm_hdmi_mode_timing_info {
 	{HDMI_VFRMT_1920x1080p30_16_9,   1920,  88,   44,  148,  FALSE,	\
 	 1080, 4, 5, 36, FALSE, 74250, 30000, FALSE, TRUE}
 
-extern struct msm_hdmi_mode_timing_info
+extern struct hdmi_disp_mode_timing_type
 	hdmi_common_supported_video_mode_lut[HDMI_VFRMT_MAX];
 
 struct hdmi_disp_mode_list_type {
@@ -240,7 +240,7 @@ extern struct mutex hdmi_msm_state_mutex;
 #define VFRMT_NOT_SUPPORTED(VFRMT) \
 	{VFRMT, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, FALSE}
 #define HDMI_SETUP_LUT(MODE) do {					\
-		struct msm_hdmi_mode_timing_info mode			\
+		struct hdmi_disp_mode_timing_type mode			\
 			= HDMI_SETTINGS_ ## MODE;			\
 		hdmi_common_supported_video_mode_lut[mode.video_format]	\
 			= mode;						\
@@ -249,15 +249,15 @@ extern struct mutex hdmi_msm_state_mutex;
 int hdmi_common_read_edid(void);
 const char *video_format_2string(uint32 format);
 bool hdmi_common_get_video_format_from_drv_data(struct msm_fb_data_type *mfd);
-const struct msm_hdmi_mode_timing_info *hdmi_common_get_mode(uint32 mode);
-const struct msm_hdmi_mode_timing_info *hdmi_common_get_supported_mode(
+const struct hdmi_disp_mode_timing_type *hdmi_common_get_mode(uint32 mode);
+const struct hdmi_disp_mode_timing_type *hdmi_common_get_supported_mode(
 	uint32 mode);
-const struct msm_hdmi_mode_timing_info *hdmi_mhl_get_mode(uint32 mode);
-const struct msm_hdmi_mode_timing_info *hdmi_mhl_get_supported_mode(
+const struct hdmi_disp_mode_timing_type *hdmi_mhl_get_mode(uint32 mode);
+const struct hdmi_disp_mode_timing_type *hdmi_mhl_get_supported_mode(
 	uint32 mode);
 void hdmi_common_init_panel_info(struct msm_panel_info *pinfo);
 
-ssize_t video_3d_format_2string(uint32 format, char *buf, int size);
+ssize_t video_3d_format_2string(uint32 format, char *buf);
 #endif
 
 int external_common_state_create(struct platform_device *pdev);

@@ -30,6 +30,150 @@ struct pm8xxx_debug_device {
 	int			addr;
 };
 
+struct s_pm8921_ssbi_reg {
+    u16 addr;
+    int multi_bank;
+};
+
+struct s_pm8921_ssbi_reg pm8921_regs[] = {
+    
+    {0x000, 0},    {0x001, 0},    {0x002, 0},    {0x003, 0},    {0x004, 0},
+    {0x005, 0},    {0x006, 0},    {0x007, 0},    {0x008, 0},    {0x009, 0},
+    {0x00A, 0},    {0x00B, 0},    {0x00C, 0},    {0x00D, 0},    {0x00E, 0},
+    {0x010, 0},    {0x011, 0},    {0x012, 0},    {0x013, 0},    {0x014, 0},
+    {0x015, 0},    {0x016, 0},    {0x018, 0},    {0x019, 0},    {0x01A, 0},
+    {0x01B, 0},    {0x01C, 0},    {0x01D, 0},    {0x01E, 0},    {0x01F, 0},
+    {0x020, 0},    {0x021, 0},    {0x022, 0},    {0x023, 0},    {0x024, 0},
+    {0x025, 0},    {0x026, 0},    {0x027, 0},    {0x028, 0},    {0x029, 0},
+    {0x02A, 8},    {0x02B, 0},    {0x02C, 0},    {0x02D, 0},    {0x02E, 8},
+    {0x02F, 8},    {0x030, 8},    {0x031, 8},    {0x032, 0},    {0x033, 0},
+
+    {0x034, 8},    {0x035, 8},    {0x036, 0},    {0x037, 0},    {0x038, 0},
+    {0x039, 0},    {0x03A, 0},    {0x03B, 8},    {0x03C, 0},    {0x03D, 0},
+    {0x03E, 0},    {0x03F, 8},    {0x040, 8},    {0x041, 8},    {0x042, 8},
+    {0x043, 0},    {0x044, 0},    {0x045, 8},    {0x046, 8},    {0x047, 0},
+    {0x048, 0},    {0x04A, 0},    {0x04F, 0},    {0x050, 0},    {0x051, 0},
+    {0x052, 0},    {0x053, 0},    {0x054, 0},    {0x055, 0},    {0x056, 0},
+    {0x057, 0},    {0x058, 0},    {0x059, 0},    {0x05A, 0},    {0x05B, 0},
+    {0x060, 0},    {0x061, 0},    {0x062, 0},    {0x063, 0},    {0x064, 0},
+    {0x065, 0},    {0x066, 0},    {0x067, 0},    {0x068, 0},    {0x069, 0},
+    {0x06A, 0},    {0x06B, 0},    {0x06C, 0},    {0x06D, 0},    {0x06E, 0},
+
+    {0x06F, 0},    {0x070, 0},    {0x071, 0},    {0x074, 8},    {0x07A, 8},
+    {0x07D, 0},    {0x07E, 0},    {0x07F, 0},    {0x080, 0},    {0x081, 0},
+    {0x082, 0},    {0x083, 0},    {0x084, 0},    {0x085, 0},    {0x086, 0},
+    {0x087, 0},    {0x090, 0},    {0x09B, 0},    {0x09C, 0},    {0x0A0, 0},
+    {0x0A1, 0},    {0x0A2, 0},    {0x0AB, 0},    {0x0AE, 0},    {0x0AF, 8},
+    {0x0B0, 0},    {0x0B1, 8},    {0x0B2, 0},    {0x0B3, 8},    {0x0B4, 0},
+    {0x0B5, 8},
+    
+    {0x0B7, 8},    {0x0B8, 0},    {0x0B9, 8},    {0x0BA, 0},
+    {0x0BB, 8},    {0x0BC, 0},    {0x0BD, 8},    {0x0BE, 0},    {0x0BF, 8},
+    {0x0C0, 0},    {0x0C1, 8},    {0x0C2, 0},    {0x0C3, 8},    {0x0C4, 0},
+    {0x0C5, 8},    {0x0C8, 0},    {0x0C9, 8},    {0x0CA, 0},    {0x0CB, 8},
+
+    {0x0CC, 0},    {0x0CD, 8},    {0x0CE, 0},    {0x0CF, 8},    {0x0D0, 0},
+    {0x0D1, 8},    {0x0D6, 0},    {0x0D7, 8},    {0x0D8, 0},    {0x0D9, 8},
+    {0x0DA, 0},    {0x0DB, 8},    {0x0DC, 0},    {0x0DD, 8},    {0x0DE, 0},
+    {0x0DF, 8},    {0x0E0, 0},    {0x0E1, 8},    {0x0E2, 0},    {0x0E3, 8},
+    {0x0E4, 0},    {0x0E5, 8},    {0x0E6, 0},    {0x0E7, 8},    {0x0E8, 0},
+    {0x0EC, 0},    {0x0ED, 0},    {0x0EE, 0},    {0x0EF, 0},    {0x0F0, 0},
+    {0x0F1, 0},    {0x0F2, 0},    {0x0F4, 0},    {0x0F5, 0},    {0x0FA, 0},
+    {0x0FC, 0},    {0x100, 0},    {0x103, 0},    {0x104, 0},    {0x105, 0},
+    {0x106, 0},    {0x107, 0},    {0x108, 0},    {0x109, 0},    {0x10A, 0},
+    {0x10B, 0},    {0x10C, 0},    {0x10D, 0},    {0x10E, 0},    {0x10F, 0},
+
+    {0x110, 0},    {0x111, 0},    {0x112, 0},    {0x113, 0},    {0x114, 0},
+    {0x115, 0},    {0x116, 0},    {0x117, 0},    {0x118, 0},    {0x119, 0},
+    {0x11A, 0},    {0x11B, 0},    {0x11C, 0},    {0x11D, 0},    {0x11E, 0},
+    {0x11F, 0},    {0x120, 0},    {0x121, 0},    {0x122, 0},    {0x123, 0},
+    {0x124, 0},    {0x125, 0},    {0x126, 0},    {0x127, 0},    {0x128, 0},
+    {0x129, 0},    {0x12A, 0},    {0x12B, 0},    {0x131, 0},    {0x132, 0},
+    {0x133, 0},    {0x134, 0},    {0x135, 0},    {0x136, 0},    {0x137, 0},
+    {0x138, 0},    {0x139, 0},    {0x13A, 0},    {0x13B, 0},    {0x13C, 0},
+    {0x13D, 0},    {0x13E, 0},    {0x13F, 0},    {0x140, 0},    {0x141, 0},
+    {0x142, 0},    {0x143, 0},    {0x144, 0},    {0x145, 0},    {0x146, 0},
+
+    {0x147, 0},    {0x148, 0},    {0x149, 0},    {0x14A, 0},    {0x14B, 0},
+    {0x14C, 0},    {0x14E, 8},    {0x14F, 0},    {0x150, 8},    {0x151, 8},
+    {0x152, 8},    {0x153, 8},    {0x154, 8},    {0x155, 8},    {0x156, 8},
+    {0x157, 8},    {0x158, 8},    {0x159, 8},    {0x15A, 8},    {0x15B, 8},
+    {0x15C, 8},    {0x15D, 8},    {0x15E, 8},    {0x15F, 8},    {0x160, 8},
+    {0x161, 8},    {0x162, 8},    {0x163, 8},    {0x164, 8},    {0x165, 8},
+    {0x166, 8},    {0x167, 8},    {0x168, 8},    {0x169, 8},    {0x16A, 8},
+    {0x16B, 8},    {0x16C, 8},    {0x16D, 8},    {0x16E, 8},    {0x16F, 8},
+    {0x170, 8},    {0x171, 8},    {0x172, 8},    {0x173, 8},    {0x174, 8},
+    {0x175, 8},    {0x176, 8},    {0x177, 8},    {0x178, 8},    {0x179, 8},
+
+    {0x17A, 8},    {0x17B, 8},    {0x17E, 0},    {0x17F, 0},    {0x180, 0},
+    {0x181, 0},    {0x182, 0},    {0x183, 0},    {0x184, 0},    {0x185, 0},
+    {0x186, 0},    {0x187, 0},    {0x188, 0},    {0x189, 0},    {0x18A, 0},
+    {0x18B, 0},    {0x18C, 0},    {0x18D, 0},    {0x18E, 0},    {0x18F, 0},
+    {0x190, 0},    {0x191, 0},    {0x192, 0},    {0x193, 0},    {0x194, 0},
+    {0x195, 0},    {0x196, 0},    {0x197, 0},    {0x198, 0},    {0x199, 0},
+    {0x19A, 0},    {0x19B, 0},    {0x19C, 0},    {0x19D, 0},    {0x19E, 0},
+    {0x19F, 0},    {0x1A0, 0},    {0x1A1, 0},    {0x1A2, 0},    {0x1A3, 0},
+    {0x1A4, 0},    {0x1A5, 0},    {0x1A6, 0},    {0x1A7, 0},    {0x1A8, 0},
+    {0x1A9, 0},    {0x1AA, 0},    {0x1AB, 0},    {0x1AC, 0},    {0x1AD, 0},
+
+    {0x1AE, 0},    {0x1AF, 0},    {0x1B1, 0},    {0x1B2, 0},    {0x1B3, 0},
+    {0x1B4, 0},    {0x1B5, 0},    {0x1B6, 0},    {0x1B7, 0},    {0x1B8, 0},
+    {0x1B9, 0},    {0x1BB, 0},    {0x1BC, 0},    {0x1BD, 0},    {0x1BE, 0},
+    {0x1BF, 0},    {0x1C0, 0},    {0x1C1, 0},    {0x1C2, 0},    {0x1C3, 0},
+    {0x1C5, 0},    {0x1C6, 0},    {0x1C7, 0},    {0x1C8, 0},    {0x1C9, 0},
+    {0x1CA, 0},    {0x1CB, 0},    {0x1CC, 0},    {0x1CD, 0},    {0x1CE, 0},
+    {0x1CF, 0},    {0x1D0, 0},    {0x1D1, 0},    {0x1D2, 0},    {0x1D3, 0},
+    {0x1D4, 8},    {0x1D5, 8},    {0x1D6, 8},    {0x1D8, 0},    {0x1D9, 0},
+    {0x1DA, 0},    {0x1DB, 0},    {0x1DC, 8},    {0x1DD, 8},    {0x1DE, 8},
+    {0x1E0, 0},    {0x1E1, 0},    {0x1E2, 0},    {0x1E3, 0},    {0x1E4, 8},
+
+    {0x1E5, 8},    {0x1E6, 8},    {0x1E8, 0},    {0x1E9, 0},    {0x1EA, 0},
+    {0x1EB, 0},    {0x1EC, 8},    {0x1ED, 8},    {0x1EE, 8},    {0x1F0, 0},
+    {0x1F1, 0},    {0x1F2, 0},    {0x1F3, 0},    {0x1F4, 8},    {0x1F5, 8},
+    {0x1F6, 8},    {0x1F8, 0},    {0x1F9, 0},    {0x1FA, 0},    {0x1FB, 0},
+    {0x1FC, 8},    {0x1FD, 8},    {0x1FE, 8},    {0x200, 0},    {0x204, 0},
+    {0x205, 0},    {0x206, 8},    {0x207, 8},    {0x208, 8},    {0x209, 8},
+    {0x20A, 8},    {0x20B, 0},    {0x20C, 0},    {0x20D, 0},    {0x20E, 0},
+    {0x20F, 0},    {0x210, 0},    {0x211, 0},    {0x212, 0},    {0x213, 0},
+    {0x214, 0},    {0x215, 0},    {0x216, 0},    {0x217, 0},    {0x218, 0},
+    {0x219, 0},    {0x21A, 0},    {0x21B, 0},    {0x21C, 0},    {0x21D, 0},
+
+    {0x21E, 8},    {0x21F, 8},    {0x220, 0},    {0x221, 0},    {0x222, 0},
+    {0x224, 0},    {0x225, 0},    {0x226, 0},    {0x227, 0},    {0x228, 0},
+    {0x229, 0},    {0x22A, 0},    {0x22B, 0},    {0x22C, 0},    {0x22D, 0},
+    {0x22E, 0},    {0x22F, 0},    {0x230, 0},    {0x231, 0},    {0x232, 0},
+    {0x233, 0},    {0x234, 0},    {0x235, 0},    {0x236, 0},    {0x237, 0},
+    {0x238, 0},    {0x239, 0},    {0x23A, 0},    {0x23B, 0},    {0x23C, 0},
+    {0x240, 0},    {0x241, 0},    {0x242, 0},    {0x243, 0},    {0x244, 0},
+    {0x245, 0},    {0x246, 0},    {0x247, 0},    {0x24F, 0},    {0x300, 0},
+    {0x303, 0},    {0x304, 0},    {0x305, 0},    {0x306, 0},    {0x307, 0},
+    {0x308, 0},    {0x30A, 0},    {0x30B, 0},    {0x30C, 0},    {0x30D, 0},
+
+    {0x30E, 0},    {0x30F, 0},    {0x310, 0},    {0x311, 0},    {0x312, 0},
+    {0x313, 0},    {0x314, 0},    {0x315, 0},    {0x317, 0},    {0x318, 0},
+    {0x319, 0},    {0x31A, 0},    {0x31B, 0},    {0x31C, 0},    {0x31D, 0},
+    {0x31E, 0},    {0x31F, 0},    {0x321, 0},    {0x322, 0},    {0x323, 0},
+    {0x324, 0},    {0x325, 0},    {0x327, 0},    {0x32A, 0},    {0x32B, 0},
+    {0x32C, 0},    {0x32D, 0},    {0x32E, 0},    {0x32F, 0},    {0x330, 0},
+    {0x331, 0},    {0x332, 0},    {0x333, 0},    {0x334, 0},    {0x336, 0},
+    {0x337, 0},    {0x338, 0},    {0x339, 0},    {0x33A, 0},    {0x33B, 0},
+    {0x33C, 0},    {0x33D, 0},    {0x33E, 0},    {0x33F, 0},    {0x342, 0},
+    {0x343, 0},    {0x344, 0},    {0x345, 0},    {0x346, 0},    {0x347, 0},
+
+    {0x34A, 0},    {0x34B, 0},    {0x34C, 0},    {0x34D, 0},    {0x34F, 0},
+    {0x350, 0},    {0x351, 0},    {0x352, 0},    {0x353, 0},    {0x355, 0},
+    {0x356, 0},    {0x357, 0},    {0x358, 0},    {0x359, 0},    {0x35A, 0},
+    {0x35B, 0},    {0x35C, 0},    {0x35E, 0},    {0x35F, 0},    {0x360, 0},
+    {0x361, 0},    {0x362, 0},    {0x363, 0},    {0x364, 0},    {0x365, 0},
+    {0x366, 0},    {0x367, 0},    {0x368, 0},    {0x369, 0},    {0x36A, 0},
+    {0x36B, 0},    {0x36C, 0},    {0x36D, 0},    {0x36E, 0},    {0x36F, 0},
+    {0x370, 0},    {0x371, 0},    {0x374, 0},    {0x375, 0},    {0x376, 0},
+    {0x377, 0},    {0x378, 0},    {0x379, 0},    {0x37A, 0},    {0x37C, 0},
+    {0x37D, 0},    {0x37F, 0},
+
+    {0xFFF, -1}    
+}; 
+
 static bool pm8xxx_debug_addr_is_valid(int addr)
 {
 	if (addr < 0 || addr > 0x3FF) {
@@ -1322,6 +1466,102 @@ static int pm8xxx_init_vreg(struct pm8xxx_vreg *vreg)
 	return rc;
 }
 
+#define PMIC_REG_BUF_SIZE   128
+int pmic8921_regs_dump(int id, struct seq_file *m, char *pmic_reg_buffer, int curr_len)
+{
+	u8 rc, val;
+	u8 bank;
+	int i, j;
+	char pmic_reg_buf[PMIC_REG_BUF_SIZE];
+
+	i = id;
+	memset(pmic_reg_buf, 0, PMIC_REG_BUF_SIZE);
+
+	if (pm8921_regs[i].multi_bank > 0)
+	{
+		for (j = 0, bank = 0; j < pm8921_regs[i].multi_bank; j++)
+		{
+			bank = REGULATOR_BANK_SEL(j);
+			rc = pm8xxx_writeb(gdebugdev->parent, pm8921_regs[i].addr, bank);
+			if(rc) {
+				if (m)
+					seq_printf(m, "[%03d] Register write fail on 0x%03X\n", i, pm8921_regs[i].addr);
+				else
+					pr_info("[%03d] Register write fail on 0x%03X\n", i, pm8921_regs[i].addr);
+
+				if (pmic_reg_buffer)
+				{
+					sprintf(pmic_reg_buf, "[%03d] Register write fail on 0x%03X\n", i, pm8921_regs[i].addr);
+					pmic_reg_buf[PMIC_REG_BUF_SIZE - 1] = '\0';
+					curr_len += sprintf(pmic_reg_buffer + curr_len, pmic_reg_buf);
+				}
+			}
+
+			rc = pm8xxx_readb(gdebugdev->parent, pm8921_regs[i].addr, &val);
+			if(rc) {
+				if (m)
+					seq_printf(m, "[%03d] Register read fail on 0x%03X\n", i, pm8921_regs[i].addr);
+				else
+					pr_info("[%03d] Register read fail on 0x%03X\n", i, pm8921_regs[i].addr);
+
+				if (pmic_reg_buffer)
+				{
+					sprintf(pmic_reg_buf, "[%03d] Register read fail on 0x%03X\n", i, pm8921_regs[i].addr);
+					pmic_reg_buf[PMIC_REG_BUF_SIZE - 1] = '\0';
+					curr_len += sprintf(pmic_reg_buffer + curr_len, pmic_reg_buf);
+				}
+			}
+			else
+			{
+				if (m)
+					seq_printf(m, "[%03d] Register 0x%03X (Bank 0x%X) = 0x%02X\n", i, pm8921_regs[i].addr, j, val);
+				else
+					pr_info("[%03d] Register 0x%03X (Bank 0x%X) = 0x%02X\n", i, pm8921_regs[i].addr, j, val);
+
+				if (pmic_reg_buffer)
+				{
+					sprintf(pmic_reg_buf, "[%03d] Register 0x%03X (Bank 0x%X) = 0x%02X\n", i, pm8921_regs[i].addr, j, val);
+					pmic_reg_buf[PMIC_REG_BUF_SIZE - 1] = '\0';
+					curr_len += sprintf(pmic_reg_buffer + curr_len, pmic_reg_buf);
+				}
+			}
+		}
+	}
+	else{
+		rc = pm8xxx_readb(gdebugdev->parent, pm8921_regs[i].addr, &val);
+		if(rc) {
+			if (m)
+				seq_printf(m, "[%03d] Register read fail on 0x%03X\n", i, pm8921_regs[i].addr);
+			else
+				pr_info("[%03d] Register read fail on 0x%03X\n", i, pm8921_regs[i].addr);
+
+			if (pmic_reg_buffer)
+			{
+				sprintf(pmic_reg_buf, "[%03d] Register read fail on 0x%03X\n", i, pm8921_regs[i].addr);
+				pmic_reg_buf[PMIC_REG_BUF_SIZE - 1] = '\0';
+				curr_len += sprintf(pmic_reg_buffer + curr_len, pmic_reg_buf);
+			}
+		}
+		else
+		{
+			if (m)
+				seq_printf(m, "[%03d] Register 0x%03X = 0x%02X\n", i, pm8921_regs[i].addr, val);
+			else
+				pr_info("[%03d] Register 0x%03X = 0x%02X\n", i, pm8921_regs[i].addr, val);
+
+			if (pmic_reg_buffer)
+			{
+				sprintf(pmic_reg_buf, "[%03d] Register 0x%03X = 0x%02X\n", i, pm8921_regs[i].addr, val);
+				pmic_reg_buf[PMIC_REG_BUF_SIZE - 1] = '\0';
+				curr_len += sprintf(pmic_reg_buffer + curr_len, pmic_reg_buf);
+			}
+		}
+	}
+
+	return curr_len;
+} 
+
+
 int pm8xxx_vreg_dump(int id, struct seq_file *m, char *vreg_buffer, int curr_len)
 {
 	int rc = 0;
@@ -1450,6 +1690,7 @@ int pmic_vreg_dump(char *vreg_buffer, int curr_len)
 
 	return curr_len;
 }
+
 static int list_vregs_show(struct seq_file *m, void *unused)
 {
 	int i;
@@ -1463,6 +1704,39 @@ static int list_vregs_show(struct seq_file *m, void *unused)
 
 	return 0;
 }
+
+int pmic_suspend_reg_dump(char *pmic_reg_buffer, int curr_len)
+{
+	int i;
+	char *title_msg = "------------ PMIC REGS -------------\n";
+
+	if (pmic_reg_buffer)
+		curr_len += sprintf(pmic_reg_buffer + curr_len,
+			"%s\n", title_msg);
+
+	pr_info("%s", title_msg);
+
+	for (i = 0; pm8921_regs[i].multi_bank >= 0; i++) {
+		curr_len = pmic8921_regs_dump(i, NULL, pmic_reg_buffer, curr_len);
+	}
+
+	return curr_len;
+}
+
+static int list_pmic_regs_show(struct seq_file *m, void *unused)
+{
+	int i;
+	char *title_msg = "------------ PMIC REGS -------------\n";
+
+	if (m)
+		seq_printf(m, title_msg);
+
+	for (i = 0; pm8921_regs[i].multi_bank >= 0; i++) {
+		pmic8921_regs_dump(i, m, NULL, 0);
+	}
+
+	return 0;
+} 
 
 extern int print_vreg_buffer(struct seq_file *m);
 extern int free_vreg_buffer(void);
@@ -1489,6 +1763,31 @@ static int list_sleep_vregs_release(struct inode *inode, struct file *file)
 	return single_release(inode, file);
 }
 
+extern int print_pmic_reg_buffer(struct seq_file *m);
+extern int free_pmic_reg_buffer(void);
+
+static int list_sleep_pmic_regs_show(struct seq_file *m, void *unused)
+{
+	print_pmic_reg_buffer(m);
+	return 0;
+}
+
+static int list_pmic_regs_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, list_pmic_regs_show, inode->i_private);
+}
+
+static int list_sleep_pmic_regs_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, list_sleep_pmic_regs_show, inode->i_private);
+}
+
+static int list_sleep_pmic_regs_release(struct inode *inode, struct file *file)
+{
+	free_pmic_reg_buffer();
+	return single_release(inode, file);
+}
+
 static const struct file_operations list_vregs_fops = {
 	.open		= list_vregs_open,
 	.read		= seq_read,
@@ -1501,6 +1800,20 @@ static const struct file_operations list_sleep_vregs_fops = {
 	.read		= seq_read,
 	.llseek		= seq_lseek,
 	.release	= list_sleep_vregs_release,
+};
+
+static const struct file_operations list_pmic_regs_fops = {
+	.open		= list_pmic_regs_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= seq_release,
+};
+
+static const struct file_operations list_sleep_pmic_regs_fops = {
+	.open		= list_sleep_pmic_regs_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= list_sleep_pmic_regs_release,
 };
 
 int pm8xxx_vreg_status_init(struct pm8xxx_debug_device *dev)
@@ -1518,6 +1831,16 @@ int pm8xxx_vreg_status_init(struct pm8xxx_debug_device *dev)
 	if (!debugfs_create_file("list_sleep_vregs", S_IRUGO, debugfs_base,
 				pm8xxx_current_table->reg_list, &list_sleep_vregs_fops))
 		return -ENOMEM;
+
+	
+	if (!debugfs_create_file("list_pmic_regs", S_IRUGO, debugfs_base,
+				pm8xxx_current_table->reg_list, &list_pmic_regs_fops))
+		return -ENOMEM;
+
+	if (!debugfs_create_file("list_sleep_pmic_regs", S_IRUGO, debugfs_base,
+				pm8xxx_current_table->reg_list, &list_sleep_pmic_regs_fops))
+		return -ENOMEM;
+	
 
 	gdebugdev = dev;
 	return err;

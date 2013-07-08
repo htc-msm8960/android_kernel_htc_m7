@@ -47,6 +47,7 @@ struct tps61310_data {
 	uint8_t				enable_FLT_1500mA;
 	uint8_t				disable_tx_mask;
 	uint32_t			power_save;
+	uint32_t			power_save_2;
 };
 
 static struct i2c_client *this_client;
@@ -161,6 +162,16 @@ static int flashlight_turn_off(void)
 		} else if (status == FL_MODE_PRE_FLASH) {
 			FLT_INFO_LOG("Enable power saving\n");
 			gpio_set_value_cansleep(this_tps61310->power_save, 1);
+		}
+	}
+	if (this_tps61310->power_save_2) {
+		status = this_tps61310->mode_status;
+		if (status == 2 || (status >= 10 && status <=16)) {
+			FLT_INFO_LOG("Disable power saving\n");
+			gpio_set_value_cansleep(this_tps61310->power_save_2, 0);
+		} else if (status == FL_MODE_PRE_FLASH) {
+			FLT_INFO_LOG("Enable power saving\n");
+			gpio_set_value_cansleep(this_tps61310->power_save_2, 1);
 		}
 	}
 	this_tps61310->mode_status = FL_MODE_OFF;
@@ -720,6 +731,10 @@ static void flashlight_early_suspend(struct early_suspend *handler)
 	FLT_INFO_LOG("%s\n", __func__);
 	if (this_tps61310 != NULL && this_tps61310->mode_status)
 		flashlight_turn_off();
+	if (this_tps61310->power_save)
+		gpio_set_value_cansleep(this_tps61310->power_save, 0);
+	if (this_tps61310->power_save_2)
+		gpio_set_value_cansleep(this_tps61310->power_save_2, 0);
 }
 
 static void flashlight_late_resume(struct early_suspend *handler)
@@ -780,6 +795,7 @@ static int tps61310_probe(struct i2c_client *client,
 	tps61310->enable_FLT_1500mA = pdata->enable_FLT_1500mA;
 	tps61310->disable_tx_mask     = pdata->disable_tx_mask;
 	tps61310->power_save              = pdata->power_save;
+	tps61310->power_save_2              = pdata->power_save_2;
 
 	if (tps61310->flash_sw_timeout <= 0)
 		tps61310->flash_sw_timeout = 600;
@@ -826,6 +842,12 @@ static int tps61310_probe(struct i2c_client *client,
 	}
 	else
 		FLT_INFO_LOG("%s no power save pin\n", __func__);
+	if (this_tps61310->power_save_2) {
+		FLT_INFO_LOG("%s power save pin_2 exist\n", __func__);
+		gpio_set_value_cansleep(this_tps61310->power_save_2, 0);
+	}
+	else
+		FLT_INFO_LOG("%s no power save pin_2\n", __func__);
 	FLT_INFO_LOG("%s -\n", __func__);
 	return 0;
 

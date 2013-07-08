@@ -1310,8 +1310,6 @@ static long ion_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
 		if (copy_from_user(&data, (void __user *)arg, sizeof(data)))
 			return -EFAULT;
-                if (data.heap_mask == 0)
-                  data.heap_mask = ION_HEAP(ION_AUDIO_HEAP_ID);
 		data.handle = ion_alloc(client, data.len, data.align,
 					     data.heap_mask, data.flags);
 

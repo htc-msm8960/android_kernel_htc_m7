@@ -44,6 +44,7 @@
 #include <linux/backing-dev.h>
 #include <linux/bitops.h>
 #include <linux/ratelimit.h>
+#include <linux/delay.h>
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/jbd2.h>
@@ -508,6 +509,11 @@ EXPORT_SYMBOL(jbd2_trans_will_send_data_barrier);
 int jbd2_log_wait_commit(journal_t *journal, tid_t tid)
 {
 	int err = 0;
+#ifdef CONFIG_FSYNC_DEBUG
+	ktime_t fsync_t, fsync_diff;
+	ktime_t wait_commit_t, wait_commit_diff;
+	wait_commit_t = ktime_get();
+#endif
 
 	read_lock(&journal->j_state_lock);
 #ifdef CONFIG_JBD2_DEBUG
@@ -517,14 +523,29 @@ int jbd2_log_wait_commit(journal_t *journal, tid_t tid)
 		       __func__, journal->j_commit_request, tid);
 	}
 #endif
+
+
 	while (tid_gt(tid, journal->j_commit_sequence)) {
 		jbd_debug(1, "JBD2: want %d, j_commit_sequence=%d\n",
 				  tid, journal->j_commit_sequence);
 		wake_up(&journal->j_wait_commit);
 		read_unlock(&journal->j_state_lock);
+#ifdef CONFIG_FSYNC_DEBUG
+		fsync_t = ktime_get();
 		wait_event(journal->j_wait_done_commit,
 				!tid_gt(tid, journal->j_commit_sequence));
+		fsync_diff = ktime_sub(ktime_get(), fsync_t);
+		if (ktime_to_ns(fsync_diff) >= 5000000000LL)
+			printk("%s: wait_event takes %lld nsec\n", __func__, ktime_to_ns(fsync_diff));
+#else
+		wait_event(journal->j_wait_done_commit,
+				!tid_gt(tid, journal->j_commit_sequence));
+#endif
 		read_lock(&journal->j_state_lock);
+
+#ifdef CONFIG_FSYNC_DEBUG
+		fsync_t = ktime_get();
+#endif
 	}
 	read_unlock(&journal->j_state_lock);
 
@@ -532,6 +553,12 @@ int jbd2_log_wait_commit(journal_t *journal, tid_t tid)
 		printk(KERN_EMERG "journal commit I/O error\n");
 		err = -EIO;
 	}
+
+#ifdef CONFIG_FSYNC_DEBUG
+		wait_commit_diff = ktime_sub(ktime_get(), wait_commit_t);
+		if (ktime_to_ns(wait_commit_diff) >= 5000000000LL)
+			printk("%s() takes %lld nsec\n", __func__, ktime_to_ns(wait_commit_diff));
+#endif
 	return err;
 }
 
@@ -816,6 +843,8 @@ static journal_t * journal_init_common (void)
 	journal->j_commit_interval = (HZ * JBD2_DEFAULT_MAX_COMMIT_AGE);
 	journal->j_min_batch_time = 0;
 	journal->j_max_batch_time = 15000; 
+	
+	journal->commit_callback_done = 0;
 
 	
 	journal->j_flags = JBD2_ABORT;
@@ -1396,6 +1425,11 @@ int jbd2_journal_flush(journal_t *journal)
 	spin_lock(&journal->j_list_lock);
 	while (!err && journal->j_checkpoint_transactions != NULL) {
 		spin_unlock(&journal->j_list_lock);
+		if (journal->commit_callback_done) {
+			msleep(1);
+			spin_lock(&journal->j_list_lock);
+			continue;
+		}
 		mutex_lock(&journal->j_checkpoint_mutex);
 		err = jbd2_log_do_checkpoint(journal);
 		mutex_unlock(&journal->j_checkpoint_mutex);

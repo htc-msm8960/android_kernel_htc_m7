@@ -246,10 +246,14 @@ static int mmc_read_ssr(struct mmc_card *card)
 			"size.\n", mmc_hostname(card->host));
 	}
 	spd_cls = UNSTUFF_BITS(ssr, 440 - 384, 8);
-	if (spd_cls < 5 && spd_cls > 0)
+	if (spd_cls < 5 && spd_cls > 0) {
 		printk(KERN_INFO "%s: speed class type is CLASS %d\n", mmc_hostname(card->host), card_spd_val[spd_cls]);
-	else
+		card->speed_class = card_spd_val[spd_cls];
+	}
+	else {
 		printk(KERN_INFO "%s: Unknown speed class type\n", mmc_hostname(card->host));
+		card->speed_class = -1;
+	}
 out:
 	kfree(ssr);
 	return err;
@@ -811,14 +815,16 @@ int mmc_sd_setup_card(struct mmc_host *host, struct mmc_card *card,
 unsigned mmc_sd_get_max_clock(struct mmc_card *card)
 {
 	unsigned max_dtr = (unsigned int)-1;
-
-	if (mmc_card_highspeed(card)) {
+	if (mmc_card_highspeed(card) && (card->host->caps & MMC_CAP_SD_HIGHSPEED)) {
 		if (max_dtr > card->sw_caps.hs_max_dtr)
 			max_dtr = card->sw_caps.hs_max_dtr;
 	} else if (max_dtr > card->csd.max_dtr) {
-		max_dtr = card->csd.max_dtr;
+		if (card->csd.max_dtr > 25000000 ||
+			!(card->host->caps & MMC_CAP_SD_HIGHSPEED)) {
+				max_dtr = 25000000;
+		} else
+			max_dtr = card->csd.max_dtr;
 	}
-
 	return max_dtr;
 }
 
@@ -874,6 +880,8 @@ static int mmc_sd_init_card(struct mmc_host *host, u32 ocr,
 			return err;
 
 		mmc_decode_cid(card);
+		pr_info("%s: [Dump CID]: MID %d, MDT year: %d, month: %d\n", mmc_hostname(host),
+			 card->cid.manfid, card->cid.year, card->cid.month);
 	}
 
 	if (!mmc_host_is_spi(host)) {

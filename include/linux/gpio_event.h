@@ -41,6 +41,7 @@ struct gpio_event_info {
 		     void **data, unsigned int dev, unsigned int type,
 		     unsigned int code, int value); 
 	bool no_suspend;
+	uint8_t rrm1_mode;
 };
 
 struct gpio_event_platform_data {
@@ -48,6 +49,7 @@ struct gpio_event_platform_data {
 	struct gpio_event_info **info;
 	size_t info_count;
 	int (*power)(const struct gpio_event_platform_data *pdata, bool on);
+	uint8_t cmcc_disable_reset;
 	const char *names[]; 
 			     
 };

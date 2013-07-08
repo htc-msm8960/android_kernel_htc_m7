@@ -21,7 +21,9 @@
 #include <sound/apr_audio.h>
 #include <sound/q6afe.h>
 #include <linux/delay.h>
+#include "q6debug.h"
 
+#define HTC_AUD_DEBUG 1
 #undef pr_info
 #undef pr_err
 #define pr_info(fmt, ...) pr_aud_info(fmt, ##__VA_ARGS__)
@@ -46,6 +48,7 @@ static struct afe_ctl this_afe;
 static struct acdb_cal_block afe_cal_addr[MAX_AUDPROC_TYPES];
 
 #define TIMEOUT_MS 1000
+#define AFE_TIMEOUT_MS 2000
 #define Q6AFE_MAX_VOLUME 0x3FFF
 
 #define SIZEOF_CFG_CMD(y) \
@@ -414,9 +417,7 @@ static void afe_send_cal_block(int32_t path, u16 port_id)
 				 msecs_to_jiffies(TIMEOUT_MS));
 	if (!result) {
 		pr_err("%s: wait_event timeout SET AFE CAL\n", __func__);
-#ifdef HTC_AUD_DEBUG
-                
-#endif
+		HTC_Q6_BUG();
 		goto done;
 	}
 
@@ -524,7 +525,7 @@ int afe_port_start(u16 port_id, union afe_port_config *afe_config,
 	if (ret < 0) {
 		pr_err("%s: AFE enable for port %d failed\n", __func__,
 				port_id);
-                
+		HTC_Q6_BUG();
 		ret = -EINVAL;
 		goto fail_cmd;
 	}
@@ -535,7 +536,7 @@ int afe_port_start(u16 port_id, union afe_port_config *afe_config,
 
 	if (!ret) {
 		pr_err("%s: wait_event timeout IF CONFIG\n", __func__);
-                
+		HTC_Q6_BUG();
 		ret = -EINVAL;
 		goto fail_cmd;
 	}
@@ -571,12 +572,10 @@ int afe_port_start(u16 port_id, union afe_port_config *afe_config,
 
 	ret = wait_event_timeout(this_afe.wait,
 			(atomic_read(&this_afe.state) == 0),
-				msecs_to_jiffies(TIMEOUT_MS));
+				msecs_to_jiffies(AFE_TIMEOUT_MS));
 	if (!ret) {
 		pr_err("%s: wait_event timeout PORT START\n", __func__);
-#ifdef HTC_AUD_DEBUG
-                
-#endif
+		HTC_Q6_BUG();
 		ret = -EINVAL;
 		goto fail_cmd;
 	}
@@ -690,7 +689,7 @@ int afe_open(u16 port_id, union afe_port_config *afe_config, int rate)
 				msecs_to_jiffies(TIMEOUT_MS));
 	if (!ret) {
 		pr_err("%s: wait_event timeout\n", __func__);
-                
+		HTC_Q6_BUG();
 		ret = -EINVAL;
 		goto fail_cmd;
 	}
@@ -723,7 +722,7 @@ int afe_open(u16 port_id, union afe_port_config *afe_config, int rate)
 				msecs_to_jiffies(TIMEOUT_MS));
 	if (!ret) {
 		pr_err("%s: wait_event timeout\n", __func__);
-                
+		HTC_Q6_BUG();
 		ret = -EINVAL;
 		goto fail_cmd;
 	}
@@ -777,9 +776,7 @@ int afe_loopback(u16 enable, u16 dst_port, u16 src_port)
 				msecs_to_jiffies(TIMEOUT_MS));
 	if (!ret) {
 		pr_err("%s: wait_event timeout\n", __func__);
-#ifdef HTC_AUD_DEBUG
-                
-#endif
+		HTC_Q6_BUG();
 		ret = -EINVAL;
 	}
 done:
@@ -837,9 +834,7 @@ int afe_loopback_cfg(u16 enable, u16 dst_port, u16 src_port, u16 mode)
 			msecs_to_jiffies(TIMEOUT_MS));
 	if (!ret) {
 		pr_err("%s: wait_event timeout\n", __func__);
-#ifdef HTC_AUD_DEBUG
-                
-#endif
+		HTC_Q6_BUG();
 		ret = -EINVAL;
 		goto fail_cmd;
 	}
@@ -979,9 +974,7 @@ int afe_apply_gain(u16 port_id, u16 gain)
 			msecs_to_jiffies(TIMEOUT_MS));
 	if (!ret) {
 		pr_err("%s: wait_event timeout\n", __func__);
-#ifdef HTC_AUD_DEBUG
-                
-#endif
+		HTC_Q6_BUG();
 		ret = -EINVAL;
 		goto fail_cmd;
 	}
@@ -1056,9 +1049,7 @@ int afe_start_pseudo_port(u16 port_id)
 				 msecs_to_jiffies(TIMEOUT_MS));
 	if (!ret) {
 		pr_err("%s: wait_event timeout\n", __func__);
-#ifdef HTC_AUD_DEBUG
-                
-#endif
+		HTC_Q6_BUG();
 		return -EINVAL;
 	}
 
@@ -1132,9 +1123,7 @@ int afe_stop_pseudo_port(u16 port_id)
 				 msecs_to_jiffies(TIMEOUT_MS));
 	if (!ret) {
 		pr_err("%s: wait_event timeout\n", __func__);
-#ifdef HTC_AUD_DEBUG
-                
-#endif
+		HTC_Q6_BUG();
 		return -EINVAL;
 	}
 
@@ -1185,7 +1174,7 @@ int afe_cmd_memory_map(u32 dma_addr_p, u32 dma_buf_sz)
 				 msecs_to_jiffies(TIMEOUT_MS));
 	if (!ret) {
 		pr_err("%s: wait_event timeout\n", __func__);
-                
+		HTC_Q6_BUG();
 		ret = -EINVAL;
 		return ret;
 	}
@@ -1273,7 +1262,7 @@ int afe_cmd_memory_unmap(u32 dma_addr_p)
 				 msecs_to_jiffies(TIMEOUT_MS));
 	if (!ret) {
 		pr_err("%s: wait_event timeout\n", __func__);
-                
+		HTC_Q6_BUG();
 		ret = -EINVAL;
 		return ret;
 	}
@@ -1665,9 +1654,7 @@ int afe_sidetone(u16 tx_port_id, u16 rx_port_id, u16 enable, uint16_t gain)
 			msecs_to_jiffies(TIMEOUT_MS));
 	if (!ret) {
 		pr_err("%s: wait_event timeout\n", __func__);
-#ifdef HTC_AUD_DEBUG
-                
-#endif
+		HTC_Q6_BUG();
 		ret = -EINVAL;
 		goto fail_cmd;
 	}
@@ -1756,7 +1743,7 @@ int afe_close(int port_id)
 					msecs_to_jiffies(TIMEOUT_MS));
 	if (!ret) {
 		pr_err("%s: wait_event timeout\n", __func__);
-                
+		HTC_Q6_BUG();
 		ret = -EINVAL;
 		goto fail_cmd;
 	}

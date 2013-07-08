@@ -61,6 +61,7 @@ struct pm8921_bms_battery_data {
 	struct pc_temp_ocv_lut	*pc_temp_ocv_lut;
 	struct sf_lut		*pc_sf_lut;
 	struct sf_lut		*rbatt_sf_lut;
+	struct sf_lut		*rbatt_est_ocv_lut;
 	int			default_rbatt_mohm;
 	int			delta_rbatt_mohm;
 };
@@ -90,6 +91,8 @@ struct pm8921_bms_platform_data {
 	int				enable_fcc_learning;
 	int						level_ocv_update_stop_begin; 
 	int						level_ocv_update_stop_end; 
+	unsigned int			criteria_sw_est_ocv; 
+	unsigned int			rconn_mohm_sw_est_ocv;
 };
 
 #if defined(CONFIG_PM8921_BMS) || defined(CONFIG_PM8921_BMS_MODULE)

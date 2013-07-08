@@ -891,6 +891,34 @@ void msm_tlmm_set_pull(enum msm_tlmm_pull_tgt tgt, int pull)
 }
 EXPORT_SYMBOL(msm_tlmm_set_pull);
 
+static u32 msm_tlmm_get_field(const struct tlmm_field_cfg *configs,
+			       unsigned id, unsigned width)
+{
+	unsigned long irqflags;
+	u32 mask = (1 << width) - 1;
+	u32 __iomem *reg = MSM_TLMM_BASE + configs[id].reg;
+	u32 reg_val;
+
+	spin_lock_irqsave(&tlmm_lock, irqflags);
+	reg_val = __raw_readl(reg);
+	reg_val = (reg_val >> configs[id].off) & mask;
+	spin_unlock_irqrestore(&tlmm_lock, irqflags);
+
+	return reg_val;
+}
+
+u32 msm_tlmm_get_hdrive(enum msm_tlmm_hdrive_tgt tgt)
+{
+	return msm_tlmm_get_field(tlmm_hdrv_cfgs, tgt, 3);
+}
+EXPORT_SYMBOL(msm_tlmm_get_hdrive);
+
+u32 msm_tlmm_get_pull(enum msm_tlmm_pull_tgt tgt)
+{
+	return msm_tlmm_get_field(tlmm_pull_cfgs, tgt, 2);
+}
+EXPORT_SYMBOL(msm_tlmm_get_pull);
+
 int gpio_tlmm_config(unsigned config, unsigned disable)
 {
 	unsigned gpio = GPIO_PIN(config);

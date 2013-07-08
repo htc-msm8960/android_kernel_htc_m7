@@ -3665,6 +3665,11 @@ void sched_show_task(struct task_struct *p)
 
 void show_state_filter(unsigned long state_filter)
 {
+	show_thread_group_state_filter(NULL, state_filter);
+}
+
+void show_thread_group_state_filter(const char *tg_comm, unsigned long state_filter)
+{
 	struct task_struct *g, *p;
 
 #if BITS_PER_LONG == 32
@@ -3677,8 +3682,10 @@ void show_state_filter(unsigned long state_filter)
 	rcu_read_lock();
 	do_each_thread(g, p) {
 		touch_nmi_watchdog();
-		if (!state_filter || (p->state & state_filter))
-			sched_show_task(p);
+		if (!tg_comm || (tg_comm && !strncmp(tg_comm, g->comm, TASK_COMM_LEN))) {
+			if (!state_filter || (p->state & state_filter))
+				sched_show_task(p);
+		}
 	} while_each_thread(g, p);
 
 	touch_all_softlockup_watchdogs();
@@ -3840,18 +3847,11 @@ void idle_task_exit(void)
 	mmdrop(mm);
 }
 
-static void migrate_nr_uninterruptible(struct rq *rq_src)
+static void calc_load_migrate(struct rq *rq)
 {
-	struct rq *rq_dest = cpu_rq(cpumask_any(cpu_active_mask));
-
-	rq_dest->nr_uninterruptible += rq_src->nr_uninterruptible;
-	rq_src->nr_uninterruptible = 0;
-}
-
-static void calc_global_load_remove(struct rq *rq)
-{
-	atomic_long_sub(rq->calc_load_active, &calc_load_tasks);
-	rq->calc_load_active = 0;
+	long delta = calc_load_fold_active(rq);
+	if (delta)
+		atomic_long_add(delta, &calc_load_tasks);
 }
 
 static void migrate_tasks(unsigned int dead_cpu)
@@ -3861,9 +3861,6 @@ static void migrate_tasks(unsigned int dead_cpu)
 	int dest_cpu;
 
 	rq->stop = NULL;
-
-	
-	unthrottle_offline_cfs_rqs(rq);
 
 	for ( ; ; ) {
 		if (rq->nr_running == 1)
@@ -4112,9 +4109,10 @@ migration_call(struct notifier_block *nfb, unsigned long action, void *hcpu)
 		migrate_tasks(cpu);
 		BUG_ON(rq->nr_running != 1); 
 		raw_spin_unlock_irqrestore(&rq->lock, flags);
+		break;
 
-		migrate_nr_uninterruptible(rq);
-		calc_global_load_remove(rq);
+	case CPU_DEAD:
+		calc_load_migrate(rq);
 		break;
 #endif
 	}

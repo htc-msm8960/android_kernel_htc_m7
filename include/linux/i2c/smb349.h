@@ -322,6 +322,7 @@ struct smb349_chg_int_notifier {
 
 struct smb349_platform_data {
 	int chg_susp_gpio;
+	int chg_stat_gpio;
 	int chg_current_ma;
 	int chip_rev;
 #ifdef CONFIG_SUPPORT_DQ_BATTERY
@@ -363,10 +364,12 @@ int smb349_is_usbcs_register_mode(void);
 int smb349_masked_write(int reg, u8 mask, u8 val);
 int smb349_not_allow_charging_cycle_end(void);
 int smb349_enable_pwrsrc(bool enable);
+int smb349_set_hsml_target_ma(int target_ma);
 int smb349_set_pwrsrc_and_charger_enable(enum htc_power_source_type src, bool chg_enable, bool pwrsrc_enable);
 int smb349_set_hc_mode(unsigned int enable);
 int smb349_switch_usbcs_mode(int mode);
 int smb349_limit_charge_enable(bool enable);
+int smb349_is_batt_charge_enable(void);
 int smb349_get_charging_src(int *result);
 int smb349_get_charging_enabled(int *result);
 int smb349_is_charger_overvoltage(int* result);

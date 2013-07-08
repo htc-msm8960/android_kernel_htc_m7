@@ -353,7 +353,7 @@ long mdm_modem_ioctl(struct file *filp, unsigned int cmd,
 		}
 
 		ret = wait_for_completion_interruptible(&mdm_needs_reload);
-		if (!ret) {
+		if (!ret && mdm_drv) {
 			put_user(mdm_drv->boot_type,
 					 (unsigned long __user *) arg);
 
@@ -372,6 +372,19 @@ long mdm_modem_ioctl(struct file *filp, unsigned int cmd,
 		break;
 	case GET_RADIO_FLAG:
 		pr_info("%s:get_radio_flag()=%x\n", __func__, get_radio_flag());
+
+		
+		if ((get_radio_flag() & RADIO_FLAG_USB_UPLOAD) && mdm_drv != NULL) {
+			pr_info("AP2MDM_STATUS GPIO:%d\n", mdm_drv->ap2mdm_status_gpio);
+			pr_info("AP2MDM_ERRFATAL GPIO:%d\n", mdm_drv->ap2mdm_errfatal_gpio);
+			pr_info("AP2MDM_PMIC_RESET_N GPIO:%d\n", mdm_drv->ap2mdm_pmic_reset_n_gpio);
+			pr_info("MDM2AP_STATUS GPIO:%d\n", mdm_drv->mdm2ap_status_gpio);
+			pr_info("MDM2AP_ERRFATAL GPIO:%d\n", mdm_drv->mdm2ap_errfatal_gpio);
+			pr_info("MDM2AP_HSIC_READY GPIO:%d\n", mdm_drv->mdm2ap_hsic_ready_gpio);
+			pr_info("AP2MDM_IPC1 GPIO:%d\n", mdm_drv->ap2mdm_ipc1_gpio);
+		}
+		
+
 		put_user(get_radio_flag(),
 				 (unsigned long __user *) arg);
 		break;
@@ -389,6 +402,10 @@ long mdm_modem_ioctl(struct file *filp, unsigned int cmd,
 			mdm_drv->mdm_hsic_reconnectd = 0;
 			mdm_drv->ops->htc_power_down_mdm_cb(mdm_drv);
 		}
+		break;
+	case HTC_UPDATE_CRC_RESTART_LEVEL:
+		pr_info("%s: (HTC_UPDATE_CRC_RESTART_LEVEL)\n", __func__);
+		subsystem_update_restart_level_for_crc();
 		break;
 	default:
 		pr_err("%s: invalid ioctl cmd = %d\n", __func__, _IOC_NR(cmd));
@@ -515,6 +532,15 @@ static void mdm_status_fn(struct work_struct *work)
 	}
 	
 
+	if ( ( get_radio_flag() & RADIO_FLAG_USB_UPLOAD ) ) {
+		if ( value == 0 ) {
+			int val_gpio = 0;
+			msleep(40);
+			val_gpio = gpio_get_value(mdm_drv->mdm2ap_hsic_ready_gpio);
+			pr_info("%s:mdm2ap_hsic_ready_gpio=[%d]\n", __func__, val_gpio);
+		}
+	}
+
 	
 	mdm_status_change_notified = true;
 	
@@ -544,6 +570,16 @@ static void mdm_status_fn(struct work_struct *work)
 	}
 }
 
+#ifdef CONFIG_QSC_MODEM
+void qsc_boot_after_mdm_bootloader(int state);
+static void qsc_boot_up_fn(struct work_struct *work)
+{
+	free_irq(mdm_drv->mdm2ap_bootloader_irq, NULL);
+
+	qsc_boot_after_mdm_bootloader(MDM_BOOTLOAER_GPIO_IRQ_RECEIVED);
+}
+static DECLARE_WORK(qsc_boot_up_work, qsc_boot_up_fn);
+#endif
 
 static void mdm_disable_irqs(void)
 {
@@ -615,6 +651,17 @@ static irqreturn_t mdm_status_change(int irq, void *dev_id)
 
 	return IRQ_HANDLED;
 }
+
+#ifdef CONFIG_QSC_MODEM
+static irqreturn_t mdm_in_bootloader(int irq, void *dev_id)
+{
+	pr_info("%s: got mdm2ap_bootloader interrupt\n", __func__);
+
+	queue_work(mdm_queue, &qsc_boot_up_work);
+
+	return IRQ_HANDLED;
+}
+#endif
 
 static int mdm_subsys_shutdown(const struct subsys_data *crashed_subsys)
 {
@@ -774,6 +821,12 @@ static void mdm_modem_initialize_data(struct platform_device  *pdev,
 	if (pres)
 		mdm_drv->ap2mdm_ipc1_gpio = pres->start;
 
+	
+	pres = platform_get_resource_byname(pdev, IORESOURCE_IO,
+							"MDM2AP_BOOTLOADER");
+	if (pres)
+		mdm_drv->mdm2ap_bootloader_gpio = pres->start;
+
 #ifdef CONFIG_HTC_STORE_MODEM_RESET_INFO
 	modem_silent_reset_info_sysfs_attrs(pdev);
 #endif
@@ -845,6 +898,9 @@ int mdm_common_create(struct platform_device  *pdev,
 	gpio_request(mdm_drv->mdm2ap_hsic_ready_gpio, "MDM2AP_HSIC_READY");
 	
 	gpio_request(mdm_drv->ap2mdm_ipc1_gpio, "AP2MDM_IPC1");
+#ifdef CONFIG_QSC_MODEM
+	gpio_request(mdm_drv->mdm2ap_bootloader_gpio, "MDM2AP_BOOTLOADER");
+#endif
 	
 
 	if (mdm_drv->ap2mdm_wakeup_gpio > 0)
@@ -856,6 +912,12 @@ int mdm_common_create(struct platform_device  *pdev,
 	gpio_direction_output(mdm_drv->ap2mdm_errfatal_gpio, 0);
 	
 	gpio_direction_output(mdm_drv->ap2mdm_ipc1_gpio, 0);
+
+#ifdef CONFIG_QSC_MODEM
+	
+	gpio_tlmm_config(GPIO_CFG((mdm_drv->mdm2ap_bootloader_gpio),  0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), GPIO_CFG_ENABLE);
+	gpio_direction_input(mdm_drv->mdm2ap_bootloader_gpio);  
+#endif
 	
 
 	if (mdm_drv->ap2mdm_wakeup_gpio > 0)
@@ -945,6 +1007,31 @@ errfatal_err:
 status_err:
 	mdm_drv->ops->power_on_mdm_cb(mdm_drv);
 
+#ifdef CONFIG_QSC_MODEM
+	
+	irq = MSM_GPIO_TO_INT(mdm_drv->mdm2ap_bootloader_gpio);
+	if (irq < 0) {
+		pr_err("%s: could not get mdm2ap_bootloader irq resource, error=%d. Skip waiting for MDM_BOOTLOADER interrupt.",
+			__func__, irq);
+	}
+	else
+	{
+		ret = request_threaded_irq(irq, NULL, mdm_in_bootloader, IRQF_TRIGGER_RISING, "mdm in bootloader", NULL);
+
+		if (ret < 0) {
+			pr_err("%s: mdm2ap_bootloader irq request failed with error=%d. Skip waiting for MDM_BOOTLOADER interrupt.",
+				__func__, ret);
+		}
+		else
+		{
+			qsc_boot_after_mdm_bootloader(MDM_BOOTLOAER_GPIO_IRQ_REGISTERED);
+			mdm_drv->mdm2ap_bootloader_irq = irq;
+			pr_info("%s: Registered mdm2ap_bootloader irq, gpio<%d> irq<%d> ret<%d>\n"
+			, __func__, mdm_drv->mdm2ap_bootloader_gpio, irq, ret);
+		}
+	}
+#endif
+
 	pr_info("%s: Registering mdm modem\n", __func__);
 	return misc_register(&mdm_modem_misc);
 
@@ -958,6 +1045,9 @@ fatal_err:
 	gpio_free(mdm_drv->mdm2ap_hsic_ready_gpio);
 	
 	gpio_free(mdm_drv->ap2mdm_ipc1_gpio);
+#ifdef CONFIG_QSC_MODEM
+	gpio_free(mdm_drv->mdm2ap_bootloader_gpio);
+#endif
 	
 
 	if (mdm_drv->ap2mdm_wakeup_gpio > 0)
@@ -1003,6 +1093,9 @@ int mdm_common_modem_remove(struct platform_device *pdev)
 	gpio_free(mdm_drv->mdm2ap_hsic_ready_gpio);
 	
 	gpio_free(mdm_drv->ap2mdm_ipc1_gpio);
+#ifdef CONFIG_QSC_MODEM
+	gpio_free(mdm_drv->mdm2ap_bootloader_gpio);
+#endif
 	
 
 	if (mdm_drv->ap2mdm_wakeup_gpio > 0)
@@ -1038,4 +1131,31 @@ void mdm_common_modem_shutdown(struct platform_device *pdev)
 	mdm_drv->ops->power_down_mdm_cb(mdm_drv);
 
 }
+
+int mdm_common_htc_get_mdm2ap_errfatal_level(void)
+{
+	int value = 0;
+
+	if (mdm_drv != NULL && mdm_drv->mdm2ap_errfatal_gpio != 0)
+		value = gpio_get_value(mdm_drv->mdm2ap_errfatal_gpio);
+
+	pr_info("%s: %d\n", __func__, value);
+
+	return value;
+}
+EXPORT_SYMBOL_GPL(mdm_common_htc_get_mdm2ap_errfatal_level);
+
+int mdm_common_htc_get_mdm2ap_status_level(void)
+{
+	int value = 0;
+
+	if (mdm_drv != NULL && mdm_drv->mdm2ap_status_gpio != 0)
+		value = gpio_get_value(mdm_drv->mdm2ap_status_gpio);
+
+	pr_info("%s: %d\n", __func__, value);
+
+	return value;
+}
+EXPORT_SYMBOL_GPL(mdm_common_htc_get_mdm2ap_status_level);
+
 

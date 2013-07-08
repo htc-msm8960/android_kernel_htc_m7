@@ -163,7 +163,7 @@ static int modem_ramdump(int enable,
 {
 	int ret = 0;
 
-	if (enable) {
+	if (enable&&(get_radio_flag()&0x8)) {
 		ret = do_ramdump(modemsw_ramdump_dev, modemsw_segments,
 			ARRAY_SIZE(modemsw_segments));
 
@@ -322,8 +322,14 @@ static int __init modem_8960_init(void)
 		goto out;
 	}
 
-	if (get_kernel_flag() & KERNEL_FLAG_ENABLE_SSR_MODEM)
-		enable_modem_ssr = 1;
+
+	if (get_kernel_flag() & KERNEL_FLAG_ENABLE_SSR_MODEM) {
+	#ifdef CONFIG_MSM_MODEM_SSR_ENABLE
+		enable_modem_ssr = 0;
+	#else
+                enable_modem_ssr = 1;
+	#endif
+	}
 
 	pr_info("%s: enable_modem_ssr set to %d\n", __func__, enable_modem_ssr);
 

@@ -17,10 +17,15 @@
 #define __LINUX_HTC_CIR_H
 
 struct cir_platform_data {
-	int cir_ls_en_gpio;
-	int cir_reset_gpio;
-	int cir_rx;
-	int (*power)(int); 
+	int (*cir_set_path)(int);
+	int (*cir_reset)(void);
+	int (*cir_power)(int);
+};
+
+enum irda_path {
+	PATH_NONE = 0,
+	PATH_IRDA,
+	PATH_CIR,
 };
 
 #endif

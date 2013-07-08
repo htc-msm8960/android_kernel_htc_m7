@@ -204,7 +204,7 @@ struct tFixPntRange {
 struct ext_slave_descr {
 	int (*init) (void *mlsl_handle,
 		     struct ext_slave_descr *slave,
-#ifdef CONFIG_M7_CIR_ALWAYS
+#ifdef CONFIG_CIR_ALWAYS_READY
 		     struct ext_slave_platform_data *pdata,
 		     int (*power_LPM)(int on)
 		     );

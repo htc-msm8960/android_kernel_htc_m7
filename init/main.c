@@ -109,6 +109,7 @@ extern void softirq_init(void);
 
 char __initdata boot_command_line[COMMAND_LINE_SIZE];
 char *saved_command_line;
+char *hashed_command_line;
 static char *static_command_line;
 
 static char *execute_command;
@@ -292,6 +293,50 @@ static void __init setup_command_line(char *command_line)
 	strcpy (static_command_line, command_line);
 }
 
+#define RAW_SN_LEN	4
+
+static void __init hash_sn(void)
+{
+	char *p;
+	unsigned int td_sf = 0;
+	size_t cmdline_len, sf_len;
+
+	cmdline_len = strlen(saved_command_line);
+	sf_len = strlen("td.sf=");
+
+	hashed_command_line = alloc_bootmem(cmdline_len + 1);
+	strncpy(hashed_command_line, saved_command_line, cmdline_len);
+	hashed_command_line[cmdline_len] = '\0';
+
+	p = saved_command_line;
+	for (p = saved_command_line; p < saved_command_line + cmdline_len - sf_len; p++) {
+		if (!strncmp(p, "td.sf=", sf_len)) {
+			p += sf_len;
+			if (*p != '0')
+				td_sf = 1;
+			break;
+		}
+	}
+	if (td_sf) {
+		unsigned int i;
+		size_t sn_len = 0;
+
+		for (p = hashed_command_line; p < hashed_command_line + cmdline_len - strlen("androidboot.serialno="); p++) {
+			if (!strncmp(p, "androidboot.serialno=", strlen("androidboot.serialno="))) {
+				p += strlen("androidboot.serialno=");
+				while (*p != ' '  && *p != '\0') {
+					sn_len++;
+					p++;
+				}
+				p -= sn_len;
+				for (i = sn_len - 1; i >= RAW_SN_LEN; i--)
+					*p++ = '*';
+				break;
+			}
+		}
+	}
+}
+
 
 static __initdata DECLARE_COMPLETION(kthreadd_done);
 
@@ -406,6 +451,7 @@ asmlinkage void __init start_kernel(void)
 	mm_init_owner(&init_mm, &init_task);
 	mm_init_cpumask(&init_mm);
 	setup_command_line(command_line);
+	hash_sn();
 	setup_nr_cpu_ids();
 	setup_per_cpu_areas();
 	smp_prepare_boot_cpu();	
@@ -413,7 +459,7 @@ asmlinkage void __init start_kernel(void)
 	build_all_zonelists(NULL);
 	page_alloc_init();
 
-	printk(KERN_NOTICE "Kernel command line: %s\n", boot_command_line);
+	printk(KERN_NOTICE "Kernel command line: %s\n", hashed_command_line);
 	parse_early_param();
 	parse_args("Booting kernel", static_command_line, __start___param,
 		   __stop___param - __start___param,

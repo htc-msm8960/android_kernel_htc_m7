@@ -38,6 +38,7 @@
 #include <mach/subsystem_restart.h>
 #include <linux/msm_charm.h>
 #include <mach/msm_watchdog.h>
+#include <linux/async.h>
 #include "devices.h"
 #include "clock.h"
 #include "mdm_private.h"
@@ -171,6 +172,14 @@ static void power_on_mdm(struct mdm_modem_drv *mdm_drv)
 
 static void power_down_mdm(struct mdm_modem_drv *mdm_drv)
 {
+	
+	if (mdm_drv->ap2mdm_errfatal_gpio > 0)
+		gpio_direction_output(mdm_drv->ap2mdm_errfatal_gpio, 0);
+	if (mdm_drv->ap2mdm_status_gpio > 0)
+		gpio_direction_output(mdm_drv->ap2mdm_status_gpio, 0);
+	if (mdm_drv->ap2mdm_wakeup_gpio > 0)
+		gpio_direction_output(mdm_drv->ap2mdm_wakeup_gpio, 0);
+	
 
 	if (mdm_drv->ap2mdm_kpdpwr_n_gpio > 0)
 		gpio_direction_output(mdm_drv->ap2mdm_kpdpwr_n_gpio, 0);
@@ -251,9 +260,15 @@ static struct platform_driver mdm_modem_driver = {
 	},
 };
 
+static void __init mdm_modem_init_async(void *unused, async_cookie_t cookie)
+{
+	platform_driver_probe(&mdm_modem_driver, mdm_modem_probe);
+}
+
 static int __init mdm_modem_init(void)
 {
-	return platform_driver_probe(&mdm_modem_driver, mdm_modem_probe);
+	async_schedule(mdm_modem_init_async, NULL);
+	return 0;
 }
 
 static void __exit mdm_modem_exit(void)

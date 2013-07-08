@@ -3879,7 +3879,7 @@ wl_cfg80211_get_station(struct wiphy *wiphy, struct net_device *dev,
 			WL_ERR(("Could not get rate (%d)\n", err));
 		} else {
 			int txpktglom;
-
+			int frameburst = 0;
 			rate = dtoh32(rate);
 			sinfo->filled |= STATION_INFO_TX_BITRATE;
 			sinfo->txrate.legacy = rate * 5;
@@ -3887,7 +3887,7 @@ wl_cfg80211_get_station(struct wiphy *wiphy, struct net_device *dev,
 
 			
 			txpktglom = ((rate/2) > 150)?20:10;
-
+			frameburst = ((rate/2) > 150)?1:0;
 			if (maxtxpktglom != txpktglom) { 
 				maxtxpktglom = txpktglom;
 				WL_ERR(("Rate %d Mbps, update bus:maxtxpktglom=%d\n", (rate / 2), maxtxpktglom));
@@ -3896,6 +3896,10 @@ wl_cfg80211_get_station(struct wiphy *wiphy, struct net_device *dev,
                 		if (err < 0) { 
                         		WL_ERR(("set bus:maxtxpktglom failed, %d\n", err));
 				} 
+				 
+				if ((err = wldev_ioctl(dev, WLC_SET_FAKEFRAG, &frameburst, sizeof(frameburst), 0))) {
+					WL_ERR(("%s fail to set frameburst !!\n", __FUNCTION__));
+				}
 			}
 		}
 
@@ -8763,6 +8767,7 @@ static struct notifier_block wl_cfg80211_netdev_notifier = {
 	.notifier_call = wl_cfg80211_netdev_notifier_call,
 };
 
+extern bool check_hang_already(struct net_device *dev); 
 static s32 wl_notify_escan_complete(struct wl_priv *wl,
 	struct net_device *ndev,
 	bool aborted, bool fw_abort)
@@ -8800,9 +8805,12 @@ static s32 wl_notify_escan_complete(struct wl_priv *wl,
 			err = -ENOMEM;
 		} else {
 			
-			err = wldev_ioctl(dev, WLC_SCAN, params, params_size, true);
-			if (err < 0) {
-				WL_ERR(("scan abort  failed \n"));
+			if (!check_hang_already(dev)) {
+				WL_ERR(("scan abort  to %s \n", dev->name));
+				err = wldev_ioctl(dev, WLC_SCAN, params, params_size, true);
+				if (err < 0) {
+					WL_ERR(("scan abort  failed \n"));
+				}
 			}
 		}
 	}
@@ -9743,6 +9751,7 @@ static s32 wl_notify_txfail(struct wl_priv *wl, struct net_device *ndev, const w
 #endif
 
 #if defined(SOFTAP)
+int sta_event_sent = 0;
 static void wl_cfg80211_hotspot_event_process(struct net_device *ndev, const wl_event_msg_t *e, void *data)
 {
 	u32 event_type = ntoh32(e->event_type);
@@ -9777,11 +9786,14 @@ static void wl_cfg80211_hotspot_event_process(struct net_device *ndev, const wl_
 		case WLC_E_ASSOC_IND:
 		case WLC_E_REASSOC_IND:
 			printf("STA connect received %d\n", event_type);
+            sta_event_sent = 1;
 			wl_cfg80211_send_priv_event(ndev, "STA_JOIN");
 			break;
+        case WLC_E_DEAUTH:
 		case WLC_E_DEAUTH_IND:
 		case WLC_E_DISASSOC_IND:
 			printf("STA disconnect received %d\n", event_type);
+            sta_event_sent = 1;
 			wl_cfg80211_send_priv_event(ndev, "STA_LEAVE");
 			break;
 		case WLC_E_LINK:
@@ -11751,3 +11763,31 @@ wl_cfg80211_set_band(struct net_device *ndev, int band)
 	return 0;
 }
 #endif 
+
+void wl_cfg80211_abort_connecting(void)
+{
+    struct wl_priv *wl = wlcfg_drv_priv;
+    struct net_device *dev;
+
+    if(!wl) {
+        printf("%s : wl is null, return\n",__func__);
+        return;
+    }
+
+    dev = wl_to_prmry_ndev(wl);
+    if(!dev) {
+        printf("%s : dev is null, return\n",__func__);
+        return;
+    }
+    if (wl_get_drv_status(wl, CONNECTING, dev)) {
+        int val = 0;
+        int err;
+        printf("%s: abort the connecting procedure.\n", __FUNCTION__);
+        err = wldev_ioctl(dev, WLC_DISASSOC, &val, sizeof(val), true);
+        if (unlikely(err)) {
+            WL_ERR(("call WLC_DISASSOC failed. (%d)\n", err));
+        }
+        
+        wl_bss_connect_done(wl, dev, NULL, NULL, false);
+    }
+}

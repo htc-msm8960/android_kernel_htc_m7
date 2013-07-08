@@ -65,6 +65,7 @@
 #endif
 
 #define PLATFORM_SUBTYPE_SGLTE	6
+#define PLATFORM_SUBTYPE_DSDA	7
 
 enum msm_cpu {
 	MSM_CPU_UNKNOWN = 0,

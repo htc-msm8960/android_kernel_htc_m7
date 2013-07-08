@@ -6,6 +6,12 @@
 
 menu "Miscellaneous I2C Chip support"
 
+
+config INPUT_YAS_MAGNETOMETER
+        tristate "YAS Geomagnetic Sensor"
+        depends on I2C
+
+
 config SENSORS_AKM8975
         tristate "AKM8973 Compass Driver"
         depends on I2C
@@ -188,7 +194,7 @@ config AMP_TPA2051D3_ON_GPIO
 	help
 	 TI TPA2051D3_ON_GPIO Speaker AMP Driver implemented by HTC.
 
-config M7_CIR_ALWAYS
+config CIR_ALWAYS_READY
         bool "BMA250 CIR Always Ready"
 	default n
 	help

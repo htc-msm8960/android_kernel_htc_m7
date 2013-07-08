@@ -239,11 +239,6 @@ struct dev_pm_info {
 	struct pm_subsys_data	*subsys_data;  
 	struct pm_qos_constraints *constraints;
 
-#if defined(CONFIG_MACH_DUMMY) || defined(CONFIG_MACH_M7_UL) || defined(CONFIG_MACH_DUMMY)
-	int runtime_rpm_resume_footprint;
-	int runtime_rpm_resume_footprint2;
-	int runtime_pm_runtime_work_footprint;
-#endif
 };
 
 extern void update_pm_runtime_accounting(struct device *dev);

@@ -7,6 +7,9 @@
 #include <linux/gfp.h>
 #include <linux/smp.h>
 #include <linux/cpu.h>
+#ifdef CONFIG_DEBUG_CSD_LOCK
+#include <linux/reboot.h>
+#endif
 
 #ifdef CONFIG_USE_GENERIC_SMP_HELPERS
 static struct {
@@ -26,6 +29,9 @@ struct call_function_data {
 	struct call_single_data	csd;
 	atomic_t		refs;
 	cpumask_var_t		cpumask;
+#ifdef CONFIG_DEBUG_CSD_LOCK
+	cpumask_var_t		cpumask_run;
+#endif
 };
 
 static DEFINE_PER_CPU_SHARED_ALIGNED(struct call_function_data, cfd_data);
@@ -85,10 +91,55 @@ void __init call_function_init(void)
 	register_cpu_notifier(&hotplug_cfd_notifier);
 }
 
+#ifdef CONFIG_DEBUG_CSD_LOCK
+#define CSD_LOCK_WAIT_TIMEOUT_MS	(CONFIG_DEBUG_CSD_LOCK_TIMEOUT_MS)
+static void csd_info_dump(void)
+{
+	struct call_function_data *data;
+
+	char buf_cpu_run[16] = {0};
+	char buf_cpu_wait[16] = {0};
+	smp_call_func_t func;
+
+	
+	pr_info("%s: CSD Queue:\n", __func__);
+	list_for_each_entry_rcu(data, &call_function.queue, csd.list) {
+		func = data->csd.func;
+
+		cpulist_scnprintf(buf_cpu_run, sizeof(buf_cpu_run), data->cpumask_run);
+		cpulist_scnprintf(buf_cpu_wait, sizeof(buf_cpu_wait), data->cpumask);
+		pr_info("Entry: Func=[<%08lx>] (%pS), Ref=%d, CpuRun=%s, CpuWait=%s\n",
+			(unsigned long) func, (void *)func,
+			atomic_read(&data->refs),
+			buf_cpu_run, buf_cpu_wait);
+	}
+}
+#endif
+
 static void csd_lock_wait(struct call_single_data *data)
 {
-	while (data->flags & CSD_FLAG_LOCK)
+#ifdef CONFIG_DEBUG_CSD_LOCK
+	unsigned long start = jiffies;
+	unsigned long now;
+#endif
+
+	while (data->flags & CSD_FLAG_LOCK) {
 		cpu_relax();
+
+#ifdef CONFIG_DEBUG_CSD_LOCK
+		now = jiffies;
+		
+		if (now < start)
+			start = now;
+
+		
+		if (((jiffies_to_msecs(now - start)) > CSD_LOCK_WAIT_TIMEOUT_MS)) {
+			WARN(1, "%s: CSD lock waiting time exceeds %d miliseconds.\n", __func__, CSD_LOCK_WAIT_TIMEOUT_MS);
+			csd_info_dump();
+			kernel_restart("force-dog-bark");
+		}
+#endif
+	}
 }
 
 static void csd_lock(struct call_single_data *data)
@@ -151,6 +202,11 @@ void generic_smp_call_function_interrupt(void)
 
 		if (atomic_read(&data->refs) == 0)
 			continue;
+
+#ifdef CONFIG_DEBUG_CSD_LOCK
+		
+		cpumask_set_cpu(cpu, data->cpumask_run);
+#endif
 
 		func = data->csd.func;		
 		func(data->csd.info);
@@ -341,6 +397,11 @@ void smp_call_function_many(const struct cpumask *mask,
 
 	
 	smp_wmb();
+
+#ifdef CONFIG_DEBUG_CSD_LOCK
+	
+	cpumask_clear(data->cpumask_run);
+#endif
 
 	
 	cpumask_and(data->cpumask, mask, cpu_online_mask);

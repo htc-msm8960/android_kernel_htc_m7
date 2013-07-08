@@ -176,7 +176,7 @@ static ssize_t external_common_rda_video_mode_str(struct device *dev,
 }
 
 #ifdef CONFIG_FB_MSM_HDMI_COMMON
-struct msm_hdmi_mode_timing_info
+struct hdmi_disp_mode_timing_type
 	hdmi_common_supported_video_mode_lut[HDMI_VFRMT_MAX] = {
 	HDMI_SETTINGS_640x480p60_4_3,
 	VFRMT_NOT_SUPPORTED(HDMI_VFRMT_720x480p60_4_3),
@@ -240,7 +240,7 @@ struct msm_hdmi_mode_timing_info
 };
 EXPORT_SYMBOL(hdmi_common_supported_video_mode_lut);
 
-struct msm_hdmi_mode_timing_info
+struct hdmi_disp_mode_timing_type
 	hdmi_mhl_supported_video_mode_lut[HDMI_VFRMT_MAX] = {
 	HDMI_SETTINGS_640x480p60_4_3,
 	VFRMT_NOT_SUPPORTED(HDMI_VFRMT_720x480p60_4_3),
@@ -450,7 +450,7 @@ static ssize_t hdmi_common_rda_edid_3d_modes(struct device *dev,
 			.disp_3d_mode_list;
 		for (i = 0; i < external_common_state->disp_mode_list
 			.num_of_elements; ++i) {
-			video_3d_format_2string(*video_3d_mode++, buff_3d, sizeof(buff_3d));
+			video_3d_format_2string(*video_3d_mode++, buff_3d);
 			if (ret > 0)
 				ret += snprintf(buf+ret, PAGE_SIZE-ret,
 					",%d=%s",
@@ -752,7 +752,7 @@ static ssize_t external_common_wta_video_mode(struct device *dev,
 	ssize_t ret = strnlen(buf, PAGE_SIZE);
 	uint32 video_mode;
 #ifdef CONFIG_FB_MSM_HDMI_COMMON
-	const struct msm_hdmi_mode_timing_info *disp_mode;
+	const struct hdmi_disp_mode_timing_type *disp_mode;
 #endif
 	mutex_lock(&external_common_state_hpd_mutex);
 	if (!external_common_state->hpd_state) {
@@ -1395,7 +1395,7 @@ static void add_supported_video_format(
 	struct hdmi_disp_mode_list_type *disp_mode_list,
 	uint32 video_format)
 {
-	const struct msm_hdmi_mode_timing_info *timing =
+	const struct hdmi_disp_mode_timing_type *timing =
 		hdmi_common_get_supported_mode(video_format);
 	boolean supported = timing != NULL;
 
@@ -1407,7 +1407,7 @@ static void add_supported_video_format(
 		supported ? "Supported" : "Not-Supported");
 	if (supported) {
 		if (mhl_is_connected()) {
-			const struct msm_hdmi_mode_timing_info *mhl_timing =
+			const struct hdmi_disp_mode_timing_type *mhl_timing =
 				hdmi_mhl_get_supported_mode(video_format);
 			boolean mhl_supported = mhl_timing != NULL;
 			DEV_DBG("EDID: format: %d [%s], %s by MHL\n",
@@ -1454,70 +1454,34 @@ const char *single_video_3d_format_2string(uint32 format)
 	return "";
 }
 
-ssize_t video_3d_format_2string(uint32 format, char *buf, int size)
+ssize_t video_3d_format_2string(uint32 format, char *buf)
 {
-	ssize_t ret = 0, len = 0;
-
-	if (size <= strlen(single_video_3d_format_2string(
-		format & TOP_AND_BOTTOM)))
-		goto l_err;
-
-	ret = snprintf(buf, size, "%s",
+	ssize_t ret, len = 0;
+	ret = snprintf(buf, PAGE_SIZE, "%s",
 		single_video_3d_format_2string(format & FRAME_PACKING));
-	if (ret < 0)
-		goto l_err;
 	len += ret;
 
-	if (len && (format & TOP_AND_BOTTOM)) {
-		if (size - len - 1 <= strlen(single_video_3d_format_2string(
-			format & TOP_AND_BOTTOM)))
-			goto l_err;
-		ret = snprintf(buf + len, size - len, ":%s",
+	if (len && (format & TOP_AND_BOTTOM))
+		ret = snprintf(buf + len, PAGE_SIZE, ":%s",
 			single_video_3d_format_2string(
 				format & TOP_AND_BOTTOM));
-		if (ret < 0)
-			goto l_err;
-	} else {
-		if (size - len <= strlen(single_video_3d_format_2string(
-			format & TOP_AND_BOTTOM)))
-			goto l_err;
-		ret = snprintf(buf + len, size - len, "%s",
+	else
+		ret = snprintf(buf + len, PAGE_SIZE, "%s",
 			single_video_3d_format_2string(
 				format & TOP_AND_BOTTOM));
-		if (ret < 0)
-			goto l_err;
-	}
-
 	len += ret;
 
-	if (len && (format & SIDE_BY_SIDE_HALF)) {
-		if (size - len - 1 <= strlen(single_video_3d_format_2string(
-			format & SIDE_BY_SIDE_HALF)))
-			goto l_err;
-		ret = snprintf(buf + len, size - len, ":%s",
+	if (len && (format & SIDE_BY_SIDE_HALF))
+		ret = snprintf(buf + len, PAGE_SIZE, ":%s",
 			single_video_3d_format_2string(
 				format & SIDE_BY_SIDE_HALF));
-		if (ret < 0)
-			goto l_err;
-	} else {
-		if (size - len <= strlen(single_video_3d_format_2string(
-			format & SIDE_BY_SIDE_HALF)))
-			goto l_err;
-		ret = snprintf(buf + len, size - len, "%s",
+	else
+		ret = snprintf(buf + len, PAGE_SIZE, "%s",
 			single_video_3d_format_2string(
 				format & SIDE_BY_SIDE_HALF));
-		if (ret < 0)
-			goto l_err;
-	}
-
 	len += ret;
 
 	return len;
-l_err:
-	DEV_ERR("EDID[3D]: buffer size %d too short(len = %d), or wrong \
-		return value %d of snprintf\n",
-		size, len, ret);
-	return -EINVAL;
 }
 
 static void add_supported_3d_format(
@@ -1536,7 +1500,7 @@ static void add_supported_3d_format(
 			break;
 		}
 	}
-	video_3d_format_2string(video_3d_format, string, sizeof(string));
+	video_3d_format_2string(video_3d_format, string);
 	DEV_DBG("EDID[3D]: format: %d [%s], %s %s\n",
 		video_format, video_format_2string(video_format),
 		string, added ? "added" : "NOT added");
@@ -2057,7 +2021,7 @@ bool hdmi_common_get_video_format_from_drv_data(struct msm_fb_data_type *mfd)
 }
 EXPORT_SYMBOL(hdmi_common_get_video_format_from_drv_data);
 
-const struct msm_hdmi_mode_timing_info *hdmi_common_get_mode(uint32 mode)
+const struct hdmi_disp_mode_timing_type *hdmi_common_get_mode(uint32 mode)
 {
 	if (mode >= HDMI_VFRMT_MAX)
 		return NULL;
@@ -2066,10 +2030,10 @@ const struct msm_hdmi_mode_timing_info *hdmi_common_get_mode(uint32 mode)
 }
 EXPORT_SYMBOL(hdmi_common_get_mode);
 
-const struct msm_hdmi_mode_timing_info *hdmi_common_get_supported_mode(
+const struct hdmi_disp_mode_timing_type *hdmi_common_get_supported_mode(
 	uint32 mode)
 {
-	const struct msm_hdmi_mode_timing_info *ret
+	const struct hdmi_disp_mode_timing_type *ret
 		= hdmi_common_get_mode(mode);
 
 	if (ret == NULL || !ret->supported)
@@ -2078,7 +2042,7 @@ const struct msm_hdmi_mode_timing_info *hdmi_common_get_supported_mode(
 }
 EXPORT_SYMBOL(hdmi_common_get_supported_mode);
 
-const struct msm_hdmi_mode_timing_info *hdmi_mhl_get_mode(uint32 mode)
+const struct hdmi_disp_mode_timing_type *hdmi_mhl_get_mode(uint32 mode)
 {
 	if (mode >= HDMI_VFRMT_MAX)
 		return NULL;
@@ -2087,10 +2051,10 @@ const struct msm_hdmi_mode_timing_info *hdmi_mhl_get_mode(uint32 mode)
 }
 EXPORT_SYMBOL(hdmi_mhl_get_mode);
 
-const struct msm_hdmi_mode_timing_info *hdmi_mhl_get_supported_mode(
+const struct hdmi_disp_mode_timing_type *hdmi_mhl_get_supported_mode(
 	uint32 mode)
 {
-	const struct msm_hdmi_mode_timing_info *ret
+	const struct hdmi_disp_mode_timing_type *ret
 		= hdmi_mhl_get_mode(mode);
 
 	if (ret == NULL || !ret->supported)
@@ -2101,7 +2065,7 @@ EXPORT_SYMBOL(hdmi_mhl_get_supported_mode);
 
 void hdmi_common_init_panel_info(struct msm_panel_info *pinfo)
 {
-	const struct msm_hdmi_mode_timing_info *timing =
+	const struct hdmi_disp_mode_timing_type *timing =
 		hdmi_common_get_supported_mode(
 		external_common_state->video_resolution);
 

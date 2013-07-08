@@ -86,6 +86,7 @@ struct TPS61310_flashlight_platform_data {
 	uint8_t enable_FLT_1500mA;
 	uint8_t disable_tx_mask;
 	uint32_t power_save; 
+	uint32_t power_save_2;
 };
 
 int aat1271_flashlight_control(int mode);

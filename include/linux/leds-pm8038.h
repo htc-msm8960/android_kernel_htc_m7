@@ -93,6 +93,7 @@ struct pm8xxx_led_config {
 	struct pm8xxx_pwm_duty_cycles *pwm_duty_cycles;
 	struct wled_config_data	*wled_cfg;
 	int		pwm_coefficient;
+	int		lut_coefficient;
 };
 
 struct pm8xxx_led_platform_data {

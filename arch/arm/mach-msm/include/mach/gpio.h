@@ -133,7 +133,8 @@ enum msm_tlmm_pull_tgt {
 #if defined(CONFIG_GPIO_MSM_V2) || defined(CONFIG_GPIO_MSM_V3)
 void msm_tlmm_set_hdrive(enum msm_tlmm_hdrive_tgt tgt, int drv_str);
 void msm_tlmm_set_pull(enum msm_tlmm_pull_tgt tgt, int pull);
-
+u32 msm_tlmm_get_hdrive(enum msm_tlmm_hdrive_tgt tgt);
+u32 msm_tlmm_get_pull(enum msm_tlmm_pull_tgt tgt);
 int msm_gpio_install_direct_irq(unsigned gpio, unsigned irq,
 						unsigned int input_polarity);
 #else

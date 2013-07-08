@@ -52,7 +52,7 @@
 	if (debug_flag) \
 		printk(KERN_DEBUG "[GSNR][BMA250 DEBUG] " x)
 
-#ifdef CONFIG_M7_CIR_ALWAYS
+#ifdef CONFIG_CIR_ALWAYS_READY
 #define BMA250_INT_CTRL_REG                     0x21
 #define BMA250_INT_MODE_SEL__POS                0
 #define BMA250_INT_MODE_SEL__LEN                4
@@ -308,12 +308,11 @@
 static void *g_mlsl_handle;
 static struct ext_slave_platform_data *g_pdata;
 int cir_flag = 0;
-int power_key_pressed = 0;
+static int power_key_pressed = 0;
 static int (*gsensor_power_LPM)(int on) = NULL;
 
 
 EXPORT_SYMBOL(cir_flag);
-EXPORT_SYMBOL(power_key_pressed);
 #endif
 
 struct bma250_config {
@@ -332,7 +331,7 @@ struct bma250_private_data {
 	unsigned char state;
 };
 
-#ifdef CONFIG_M7_CIR_ALWAYS
+#ifdef CONFIG_CIR_ALWAYS_READY
 static int bma250_set_slope_threshold(void *mlsl_handle, struct ext_slave_platform_data *pdata,
 		unsigned char threshold)
 {
@@ -624,7 +623,7 @@ static int bma250_set_irq(void *mlsl_handle,
 
 	if (apply) {
 
-#ifndef CONFIG_M7_CIR_ALWAYS
+#ifndef CONFIG_CIR_ALWAYS_READY
 		if (!config->power_mode) {
 			
 			result = MLSLSerialWriteSingle(mlsl_handle,
@@ -644,7 +643,7 @@ static int bma250_set_irq(void *mlsl_handle,
 			BOSCH_INT_REG, config->int_reg);
 		ERROR_CHECK(result);
 
-#ifdef CONFIG_M7_CIR_ALWAYS
+#ifdef CONFIG_CIR_ALWAYS_READY
 		if (!config->power_mode && !cir_flag) {
 #else
 		if (!config->power_mode) {
@@ -669,6 +668,7 @@ static int bma250_set_odr(void *mlsl_handle,
 {
 	unsigned char odr_bits = 0;
 	unsigned char wup_bits = 0;
+	unsigned char read_from_chip_bw = 0;
 	int result = ML_SUCCESS;
 
 	
@@ -714,7 +714,8 @@ static int bma250_set_odr(void *mlsl_handle,
 
 	MPL_LOGV("ODR: %d \n", config->odr);
 	if (apply) {
-#ifndef CONFIG_M7_CIR_ALWAYS
+#ifndef CONFIG_CIR_ALWAYS_READY
+#if 0 
 			
 			result = MLSLSerialWriteSingle(mlsl_handle,
 					pdata->address, BMA250_REG_SOFT_RESET,
@@ -722,10 +723,22 @@ static int bma250_set_odr(void *mlsl_handle,
 			ERROR_CHECK(result);
 			MLOSSleep(1);
 #endif
-			result = MLSLSerialWriteSingle(mlsl_handle,
-					pdata->address, BMA250_BW_REG,
-					config->bw_reg);
+#endif
+			result = MLSLSerialRead(mlsl_handle,
+					pdata->address, BMA250_BW_REG, 1,
+					&read_from_chip_bw);
 			ERROR_CHECK(result);
+
+			if (odr_bits != read_from_chip_bw) {
+				D("%s: Really set ODR to %d\n", __func__,
+					config->odr);
+				result = MLSLSerialWriteSingle(mlsl_handle,
+						pdata->address, BMA250_BW_REG,
+						config->bw_reg);
+				ERROR_CHECK(result);
+				
+				MLOSSleep(25);
+			}
 
 			
 
@@ -736,8 +749,10 @@ static int bma250_set_odr(void *mlsl_handle,
 				ERROR_CHECK(result);
 				MLOSSleep(1);
 			} else {
+#if 0 
 				result = set_normal_mode(mlsl_handle, pdata);
 				ERROR_CHECK(result);
+#endif
 			}
 	}
 
@@ -776,7 +791,7 @@ static int bma250_set_fsr(void *mlsl_handle,
 
 	MPL_LOGV("FSR: %d \n", config->fsr);
 	if (apply) {
-#ifndef CONFIG_M7_CIR_ALWAYS
+#ifndef CONFIG_CIR_ALWAYS_READY
 		if (!config->power_mode) {
 			
 			result = MLSLSerialWriteSingle(mlsl_handle,
@@ -827,7 +842,7 @@ static int bma250_suspend(void *mlsl_handle,
 
 	
 
-#ifdef CONFIG_M7_CIR_ALWAYS
+#ifdef CONFIG_CIR_ALWAYS_READY
 	
 	if ((!private_data->suspend.power_mode && !cir_flag)) {
 #else
@@ -863,7 +878,7 @@ static int bma250_resume(void *mlsl_handle,
 
 	private_data->state = 0;
 
-#ifndef CONFIG_M7_CIR_ALWAYS
+#ifndef CONFIG_CIR_ALWAYS_READY
 	result = MLSLSerialWriteSingle(mlsl_handle, pdata->address,
 		BMA250_REG_SOFT_RESET, 0xB6);  
 	ERROR_CHECK(result);
@@ -880,10 +895,6 @@ static int bma250_resume(void *mlsl_handle,
 
 	
 
-#ifdef CONFIG_M7_CIR_ALWAYS
-	
-	power_key_pressed = 0;
-#endif
 	if (!private_data->resume.power_mode) {
 		result = MLSLSerialWriteSingle(mlsl_handle, pdata->address,
 			BOSCH_PWR_REG, 0x80);
@@ -910,7 +921,7 @@ static int bma250_read(void *mlsl_handle,
 }
 
 
-#ifdef CONFIG_M7_CIR_ALWAYS
+#ifdef CONFIG_CIR_ALWAYS_READY
 
 
 static ssize_t bma250_enable_interrupt(struct device *dev,
@@ -965,12 +976,37 @@ static ssize_t bma250_enable_interrupt(struct device *dev,
 	}
 	return count;
 }
+static ssize_t bma250_clear_powerkey_pressed(struct device *dev,
+		struct device_attribute *attr,
+		const char *buf, size_t count)
+{
+	unsigned long powerkey_pressed;
+	int error;
+	error = strict_strtoul(buf, 10, &powerkey_pressed);
+	if (error)
+	    return error;
+
+	if(powerkey_pressed == 1) {
+	    power_key_pressed = 1;
+	}
+	else if(powerkey_pressed == 0) {
+	    power_key_pressed = 0;
+	}
+	return count;
+}
+static ssize_t bma250_get_powerkry_pressed(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%d\n", power_key_pressed);
+}
 static DEVICE_ATTR(enable, S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP,
 		NULL, bma250_enable_interrupt);
+static DEVICE_ATTR(clear_powerkey_flag, S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP,
+		bma250_get_powerkry_pressed, bma250_clear_powerkey_pressed);
 #endif
 static int bma250_init(void *mlsl_handle,
 			  struct ext_slave_descr *slave,
-#ifdef CONFIG_M7_CIR_ALWAYS
+#ifdef CONFIG_CIR_ALWAYS_READY
 			  struct ext_slave_platform_data *pdata,
 			  int (*power_LPM)(int on)
 			  )
@@ -982,9 +1018,11 @@ static int bma250_init(void *mlsl_handle,
 	tMLError result = 0;
 	unsigned char reg = 0;
 	unsigned char bw_reg = 0;
-#ifdef CONFIG_M7_CIR_ALWAYS
+#ifdef CONFIG_CIR_ALWAYS_READY
 	struct class *bma250_class = NULL;
 	struct device *bma250_dev = NULL;
+	struct class *bma250_powerkey_class = NULL;
+	struct device *bma250_powerkey_dev = NULL;
 	int res;
 #endif
 	struct bma250_private_data *private_data;
@@ -997,7 +1035,7 @@ static int bma250_init(void *mlsl_handle,
 		return ML_ERROR_MEMORY_EXAUSTED;
 
 
-#ifdef CONFIG_M7_CIR_ALWAYS
+#ifdef CONFIG_CIR_ALWAYS_READY
 
 	g_pdata = pdata;
 	gsensor_power_LPM = power_LPM;
@@ -1012,7 +1050,17 @@ static int bma250_init(void *mlsl_handle,
 		goto err_create_bma250_class_failed;
 	}
 
+	bma250_powerkey_class = class_create(THIS_MODULE, "bma250_powerkey");
+
+	if (IS_ERR(bma250_powerkey_class)) {
+		res = PTR_ERR(bma250_powerkey_class);
+		bma250_powerkey_class = NULL;
+		E("%s, create bma250_class fail!\n", __func__);
+		goto err_create_bma250_powerkey_class_failed;
+	}
 	bma250_dev = device_create(bma250_class,
+				NULL, 0, "%s", "bma250");
+	bma250_powerkey_dev = device_create(bma250_powerkey_class,
 				NULL, 0, "%s", "bma250");
 
 	if (unlikely(IS_ERR(bma250_dev))) {
@@ -1021,10 +1069,21 @@ static int bma250_init(void *mlsl_handle,
 		E("%s, create bma250_dev fail!\n", __func__);
 		goto err_create_bma250_device;
 	}
+	if (unlikely(IS_ERR(bma250_powerkey_dev))) {
+		res = PTR_ERR(bma250_powerkey_dev);
+		bma250_powerkey_dev = NULL;
+		E("%s, create bma250_dev fail!\n", __func__);
+		goto err_create_bma250_powerkey_device;
+	}
 	res = device_create_file(bma250_dev, &dev_attr_enable);
 	if (res) {
 		E("%s, create bma250_device_create_file fail!\n", __func__);
 		goto err_create_bma250_device_file;
+	}
+	res = device_create_file(bma250_powerkey_dev, &dev_attr_clear_powerkey_flag);
+	if (res) {
+		E("%s, create bma250_device_create_file fail!\n", __func__);
+		goto err_create_bma250_powerkey_device_file;
 	}
 
 #endif
@@ -1079,11 +1138,17 @@ static int bma250_init(void *mlsl_handle,
 	ERROR_CHECK(result);
 
 	return result;
-#ifdef CONFIG_M7_CIR_ALWAYS
+#ifdef CONFIG_CIR_ALWAYS_READY
+err_create_bma250_powerkey_device_file:
+	device_remove_file(bma250_powerkey_dev, &dev_attr_clear_powerkey_flag);
 err_create_bma250_device_file:
 	device_remove_file(bma250_dev, &dev_attr_enable);
+err_create_bma250_powerkey_device:
+	device_unregister(bma250_powerkey_dev);
 err_create_bma250_device:
 	device_unregister(bma250_dev);
+err_create_bma250_powerkey_class_failed:
+	class_destroy(bma250_powerkey_class);
 err_create_bma250_class_failed:
 	class_destroy(bma250_class);
 	return result;

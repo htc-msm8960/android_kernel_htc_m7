@@ -15,18 +15,15 @@
 
 #include <linux/jiffies.h>
 
-/* Runtime PM flag argument bits */
-#define RPM_ASYNC		0x01	/* Request is asynchronous */
-#define RPM_NOWAIT		0x02	/* Don't wait for concurrent
-					    state change */
-#define RPM_GET_PUT		0x04	/* Increment/decrement the
-					    usage_count */
-#define RPM_AUTO		0x08	/* Use autosuspend_delay */
+#define RPM_ASYNC		0x01	
+#define RPM_NOWAIT		0x02	
+#define RPM_GET_PUT		0x04	
+#define RPM_AUTO		0x08	
 
 #ifdef CONFIG_PM_RUNTIME
 
 extern struct workqueue_struct *pm_wq;
-
+extern struct workqueue_struct *pm_rt_wq;
 extern int __pm_runtime_idle(struct device *dev, int rpmflags);
 extern int __pm_runtime_suspend(struct device *dev, int rpmflags);
 extern int __pm_runtime_resume(struct device *dev, int rpmflags);
@@ -53,6 +50,10 @@ static inline bool pm_children_suspended(struct device *dev)
 	return dev->power.ignore_children
 		|| !atomic_read(&dev->power.child_count);
 }
+
+#if defined(CONFIG_ARCH_APQ8064) && defined(CONFIG_USB_EHCI_MSM_HSIC)
+extern int mdm_is_in_restart;
+#endif 
 
 static inline void pm_runtime_get_noresume(struct device *dev)
 {
