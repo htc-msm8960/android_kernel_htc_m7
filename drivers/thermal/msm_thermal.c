@@ -29,6 +29,8 @@
 
 static DEFINE_MUTEX(emergency_shutdown_mutex);
 
+static int is_msm_thermal_guard_enabled;
+
 //Throttling indicator, 0=not throttled, 1=low, 2=mid, 3=max
 static int thermal_throttled = 0;
 
@@ -260,6 +262,13 @@ static void disable_msm_thermal(void)
    pr_warn("msm_thermal: Warning! Thermal guard disabled!");
 }
 
+static void enable_msm_thermal(void)
+{
+    is_msm_thermal_guard_enabled = 1;
+    queue_delayed_work(check_temp_workq, &check_temp_work,
+                       msecs_to_jiffies(msm_thermal_info.poll_ms));
+}
+
 static int set_enabled(const char *val, const struct kernel_param *kp)
 {
     int ret = 0;
@@ -267,6 +276,8 @@ static int set_enabled(const char *val, const struct kernel_param *kp)
     ret = param_set_bool(val, kp);
     if (!is_msm_thermal_guard_enabled)
         disable_msm_thermal();
+    else if (is_msm_thermal_guard_enabled == 1)
+        enable_msm_thermal();
     else
         pr_info("msm_thermal: no action for enabled = %d\n", enabled);
 
